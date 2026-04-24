@@ -1,25 +1,20 @@
-#include "State.hpp"
+#include "parser.hpp"
 #include <fstream>
 #include <sstream>
-#include <iostream>
-#include <stdexcept>
 
-// Helper to split a string by comma
 static std::vector<double> parseCSVLine(const std::string& line) {
     std::vector<double> result;
     std::stringstream ss(line);
     std::string cell;
     while (std::getline(ss, cell, ',')) {
-        try {
-            result.push_back(std::stod(cell));
-        } catch (...) {
-            // Ignore parse errors or empty cells
-        }
+        try { result.push_back(std::stod(cell)); } catch (...) {}
     }
     return result;
 }
 
-bool StaticState::loadFromDirectory(const std::string& directoryPath) {
+namespace io {
+
+bool parseStaticState(const std::string& directoryPath, StaticState& out) {
     // Load warehouse.csv
     {
         std::ifstream file(directoryPath + "/warehouse.csv");
@@ -28,7 +23,7 @@ bool StaticState::loadFromDirectory(const std::string& directoryPath) {
         while (std::getline(file, line)) {
             auto values = parseCSVLine(line);
             if (values.size() >= 2) {
-                warehousePolygon.push_back({values[0], values[1]});
+                out.warehousePolygon.push_back({values[0], values[1]});
             }
         }
     }

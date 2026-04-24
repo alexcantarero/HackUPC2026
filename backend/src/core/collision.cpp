@@ -1,4 +1,4 @@
-#include "Collision.hpp"
+#include "collision.hpp"
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -20,64 +20,104 @@ const BayType* CollisionChecker::getBayType(int typeId, const StaticState* stati
     return nullptr;
 }
 
-OBB CollisionChecker::createOBB(const Bay& bay, const StaticState* staticInfo) {
+OBB CollisionChecker::buildOBBFromLocalCorners(const Point2D local[4], double pivotX, double pivotY,
+                                                double cosA, double sinA) {
     OBB obb;
+    double cx = 0.0, cy = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        obb.corners[i].x = pivotX + (local[i].x * cosA - local[i].y * sinA);
+        obb.corners[i].y = pivotY + (local[i].x * sinA + local[i].y * cosA);
+        cx += obb.corners[i].x;
+        cy += obb.corners[i].y;
+    }
+    obb.center = {cx / 4.0, cy / 4.0};
+    return obb;
+}
+
+OBB CollisionChecker::createSolidOBB(const Bay& bay, const StaticState* staticInfo) {
     const BayType* type = getBayType(bay.typeId, staticInfo);
     if (!type) {
-        // Fallback if ID is not found
+        OBB obb;
         for (int i = 0; i < 4; ++i) obb.corners[i] = {bay.x, bay.y};
         obb.center = {bay.x, bay.y};
         return obb;
     }
 
-    double rad = degToRad(bay.rotation);
-    double cosA = std::cos(rad);
-    double sinA = std::sin(rad);
+    const double w    = type->width;
+    const double d    = type->depth;
+    const double cosA = std::cos(degToRad(bay.rotation));
+    const double sinA = std::sin(degToRad(bay.rotation));
 
-    // Dimensions
-    double w = type->width;
-    double d = type->depth;
+    // Solid occupies local y = [0, depth]
+    Point2D local[4] = {{0, 0}, {w, 0}, {w, d}, {0, d}};
+    return buildOBBFromLocalCorners(local, bay.x, bay.y, cosA, sinA);
+}
 
-    // Local corners before rotation, assuming (0,0) is the bottom-left corner
-    Point2D local[4] = {
-        {0, 0},     // Bottom Left (Pivot)
-        {w, 0},     // Bottom Right
-        {w, d},     // Top Right
-        {0, d}      // Top Left
-    };
-
-    double cx = 0.0, cy = 0.0;
-
-    // Rotate around bottom-left (0,0) and translate by (bay.x, bay.y)
-    for (int i = 0; i < 4; ++i) {
-        obb.corners[i].x = bay.x + (local[i].x * cosA - local[i].y * sinA);
-        obb.corners[i].y = bay.y + (local[i].x * sinA + local[i].y * cosA);
-        cx += obb.corners[i].x;
-        cy += obb.corners[i].y;
+OBB CollisionChecker::createGapOBB(const Bay& bay, const StaticState* staticInfo) {
+    const BayType* type = getBayType(bay.typeId, staticInfo);
+    if (!type) {
+        OBB obb;
+        for (int i = 0; i < 4; ++i) obb.corners[i] = {bay.x, bay.y};
+        obb.center = {bay.x, bay.y};
+        return obb;
     }
 
-    // Calculate and store the center
-    obb.center.x = cx / 4.0;
-    obb.center.y = cy / 4.0;
+    const double w    = type->width;
+    const double d    = type->depth;
+    const double g    = type->gap;
+    const double cosA = std::cos(degToRad(bay.rotation));
+    const double sinA = std::sin(degToRad(bay.rotation));
 
+    // Gap occupies local y = [depth, depth + gap] — the aisle in front of the solid
+    Point2D local[4] = {{0, d}, {w, d}, {w, d + g}, {0, d + g}};
+    return buildOBBFromLocalCorners(local, bay.x, bay.y, cosA, sinA);
+}
+
+OBB CollisionChecker::createObstacleOBB(const Obstacle& obs) {
+    OBB obb;
+    obb.corners[0] = {obs.x,             obs.y};
+    obb.corners[1] = {obs.x + obs.width, obs.y};
+    obb.corners[2] = {obs.x + obs.width, obs.y + obs.depth}; // fixed: was obs.height
+    obb.corners[3] = {obs.x,             obs.y + obs.depth}; // fixed: was obs.height
+    obb.center     = {obs.x + obs.width / 2.0, obs.y + obs.depth / 2.0};
     return obb;
 }
 
-OBB CollisionChecker::createOBB(const Obstacle& obs) {
-    OBB obb;
-    // Bottom-Left
-    obb.corners[0] = {obs.x, obs.y};
-    // Bottom-Right
-    obb.corners[1] = {obs.x + obs.width, obs.y};
-    // Top-Right
-    obb.corners[2] = {obs.x + obs.width, obs.y + obs.height};
-    // Top-Left
-    obb.corners[3] = {obs.x, obs.y + obs.height};
+bool CollisionChecker::isValidPlacement(
+    const Bay& candidate,
+    const std::vector<Bay>& placed,
+    const StaticState* staticInfo)
+{
+    const BayType* type = getBayType(candidate.typeId, staticInfo);
+    if (!type) return false;
 
-    obb.center.x = obs.x + obs.width / 2.0;
-    obb.center.y = obs.y + obs.height / 2.0;
+    const OBB solidOBB = createSolidOBB(candidate, staticInfo);
+    const OBB gapOBB   = createGapOBB(candidate, staticInfo);
 
-    return obb;
+    // 1. Solid must be fully inside the warehouse polygon
+    if (!isOBBInsidePolygon(solidOBB, staticInfo->warehousePolygon)) return false;
+
+    // 2. Ceiling constraint on solid
+    if (!checkCeiling(solidOBB, type->height, staticInfo->ceilingRegions)) return false;
+
+    // 3 & 4. Solid and gap must not overlap any obstacle
+    for (const auto& obs : staticInfo->obstacles) {
+        OBB obsOBB = createObstacleOBB(obs);
+        if (checkOBBvsOBB(solidOBB, obsOBB)) return false;
+        if (checkOBBvsOBB(gapOBB,   obsOBB)) return false;
+    }
+
+    // 5, 6, 7. Inter-bay collision checks (gap vs gap is intentionally skipped)
+    for (const auto& other : placed) {
+        OBB otherSolid = createSolidOBB(other, staticInfo);
+        OBB otherGap   = createGapOBB(other, staticInfo);
+
+        if (checkOBBvsOBB(solidOBB, otherSolid)) return false; // solid vs solid
+        if (checkOBBvsOBB(solidOBB, otherGap))   return false; // solid vs gap
+        if (checkOBBvsOBB(gapOBB,   otherSolid)) return false; // gap vs solid
+    }
+
+    return true;
 }
 
 double CollisionChecker::dotProduct(const Point2D& a, const Point2D& b) {
@@ -124,10 +164,6 @@ bool CollisionChecker::checkOBBvsOBB(const OBB& a, const OBB& b) {
     return true;
 }
 
-bool CollisionChecker::checkOBBvsAABB(const OBB& obb, const Obstacle& obs) {
-    OBB obsObb = createOBB(obs);
-    return checkOBBvsOBB(obb, obsObb);
-}
 
 bool CollisionChecker::isPointInsidePolygon(const Point2D& p, const std::vector<Point2D>& polygon) {
     bool inside = false;
@@ -232,7 +268,7 @@ void SpatialGrid::insertBay(int bayIndex, const OBB& obb) {
 }
 
 void SpatialGrid::insertObstacle(int obsIndex, const Obstacle& obs) {
-    OBB obb = CollisionChecker::createOBB(obs);
+    OBB obb = CollisionChecker::createObstacleOBB(obs);
     int minX, maxX, minY, maxY;
     getGridBounds(obb, minX, maxX, minY, maxY);
 
