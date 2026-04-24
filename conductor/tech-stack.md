@@ -1,9 +1,8 @@
 # Tech Stack
 
 ## Current Stack
-- **Language:** TypeScript
-- **Frontend Framework:** React (with Vite for fast builds and HMR)
-- **Styling:** Utility Classes (TailwindCSS/Similar)
-
-## Future Additions
-The backend and database technologies are currently agnostic. They will be selected based on the specific hackathon project requirements and integrated rapidly during the event.
+- **Algorithm Core:** C++17/C++20 (for high-performance collision detection and search algorithms).
+- **Core Features:** SAT + AABB Collision Engine, `<std::thread>` for multi-core parallelism, `std::mt19937` for seeded randomness.
+- **Frontend Framework:** React (with Vite for fast builds and HMR) and TypeScript.
+- **Frontend Styling:** Utility Classes (TailwindCSS/Similar).
+- **I/O & Scripts:** Python (for parsing CSVs and output generation, if it speeds up development).
