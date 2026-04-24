@@ -47,18 +47,17 @@ hackaton_frontend/   ← repo root (despite the name, full monorepo)
 
 ---
 
-## Backend: Algorithmic Portfolio (6 Cores)
+## Backend: Parallel Execution (6 Cores)
 
-Each core runs an independent algorithm. At T=29s a global `stop_flag` fires; the main thread picks the lowest-Q valid result.
+The solver runs a single user-selected algorithm across 6 independent threads, each seeded differently. This maximizes the search space exploration to increase the final solution quality. At T=29s a global `stop_flag` fires; the main thread picks the lowest-Q valid result.
 
-| Core | Algorithm |
-|------|-----------|
-| 1 | Constructive Greedy + Bottom-Left-Fill (orthogonal) — fast baseline |
-| 2 | Sequence-based Genetic Algorithm (orthogonal angles) |
-| 3 | Sequence-based Genetic Algorithm (continuous/arbitrary angles) |
-| 4 | Simulated Annealing (relaxed overlap-penalized state space) |
-| 5 | Iterated Jostle Heuristic (L→R / R→L repacking + kick) |
-| 6 | VNS maximizing gap-vs-gap sharing |
+### Available Algorithms
+- Constructive Greedy + Bottom-Left-Fill (orthogonal) — fast baseline
+- Sequence-based Genetic Algorithm (orthogonal angles)
+- Sequence-based Genetic Algorithm (continuous/arbitrary angles)
+- Simulated Annealing (relaxed overlap-penalized state space)
+- Iterated Jostle Heuristic (L→R / R→L repacking + kick)
+- VNS maximizing gap-vs-gap sharing
 
 ### Backend Rules
 - No shared mutable state between threads — each thread owns a full copy of parsed data
