@@ -64,8 +64,8 @@ struct GridKeyHash {
 // Spatial Grid for O(1) amortized collision lookups
 class SpatialGrid {
 public:
-    // cellSize should ideally be roughly the size of your largest bay
-    SpatialGrid(double cellSize);
+    // Uses the largestBaySize from StaticState for the cell size
+    SpatialGrid(const StaticState* staticInfo);
     
     // Insert a bay's OBB into the grid. 'bayIndex' is the index in the State::bays vector.
     void insertBay(int bayIndex, const OBB& obb);

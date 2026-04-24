@@ -39,6 +39,8 @@ public:
     std::vector<CeilingRegion> ceilingRegions;
     std::vector<BayType> bayTypes;
 
+    double largestBaySize = 0.0;
+
     // Load static characteristics from the CaseX folder (CSV files)
     bool loadFromDirectory(const std::string& directoryPath);
 };

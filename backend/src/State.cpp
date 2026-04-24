@@ -76,6 +76,11 @@ bool StaticState::loadFromDirectory(const std::string& directoryPath) {
                 bt.nLoads = values[5];
                 bt.price = values[6];
                 bayTypes.push_back(bt);
+
+                double maxDim = std::max(bt.width, bt.depth);
+                if (maxDim > largestBaySize) {
+                    largestBaySize = maxDim;
+                }
             }
         }
     }
