@@ -234,10 +234,7 @@ bool CollisionChecker::checkCeiling(const OBB& obb, double bayHeight, const std:
 
 // --- SPATIAL HASH GRID IMPLEMENTATION ---
 
-SpatialGrid::SpatialGrid(const StaticState* staticInfo) {
-    // Determine cell size based on the largest bay dimension. Default to 1.0 if not set.
-    cellSize = (staticInfo && staticInfo->largestBaySize > 0.0) ? staticInfo->largestBaySize : 1.0;
-}
+SpatialGrid::SpatialGrid(double cellSize) : cellSize(cellSize) {}
 
 void SpatialGrid::getGridBounds(const OBB& obb, int& minX, int& maxX, int& minY, int& maxY) const {
     double min_x = obb.corners[0].x, max_x = obb.corners[0].x;

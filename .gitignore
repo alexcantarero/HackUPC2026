@@ -26,3 +26,13 @@ dist-ssr
 .env
 
 .gemini/settings.json
+
+# C++ build artifacts
+backend/bin/
+backend/**/*.o
+*.o
+*.out
+
+# Compiler / vite cache
+.cache/
+.vite/

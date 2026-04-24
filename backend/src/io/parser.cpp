@@ -36,7 +36,7 @@ bool parseStaticState(const std::string& directoryPath, StaticState& out) {
         while (std::getline(file, line)) {
             auto values = parseCSVLine(line);
             if (values.size() >= 4) {
-                obstacles.push_back({values[0], values[1], values[2], values[3]});
+                out.obstacles.push_back({values[0], values[1], values[2], values[3]});
             }
         }
     }
@@ -49,7 +49,7 @@ bool parseStaticState(const std::string& directoryPath, StaticState& out) {
         while (std::getline(file, line)) {
             auto values = parseCSVLine(line);
             if (values.size() >= 2) {
-                ceilingRegions.push_back({values[0], values[1]});
+                out.ceilingRegions.push_back({values[0], values[1]});
             }
         }
     }
@@ -70,15 +70,12 @@ bool parseStaticState(const std::string& directoryPath, StaticState& out) {
                 bt.gap = values[4];
                 bt.nLoads = values[5];
                 bt.price = values[6];
-                bayTypes.push_back(bt);
-
-                double maxDim = std::max(bt.width, bt.depth);
-                if (maxDim > largestBaySize) {
-                    largestBaySize = maxDim;
-                }
+                out.bayTypes.push_back(bt);
             }
         }
     }
 
     return true;
 }
+
+} // namespace io
