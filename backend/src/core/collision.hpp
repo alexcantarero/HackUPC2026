@@ -6,6 +6,9 @@
 #include <unordered_set>
 #include <cstddef>
 
+// Forward declaration so CollisionChecker can accept SpatialGrid* before it is defined
+class SpatialGrid;
+
 // Oriented Bounding Box
 struct OBB {
     Point2D corners[4]; // 4 corners of the rotated rectangle (BL, BR, TR, TL in local space)
@@ -52,11 +55,17 @@ public:
      *  6. Solid does not overlap any placed bay's gap
      *  7. Gap does not overlap any placed bay's solid
      *  (Gap vs gap deliberately not checked — always valid)
+     *
+     * @param grid  Optional spatial grid for broad-phase narrowing. When provided,
+     *              only nearby bays are SAT-checked instead of the full placed list.
+     *              The grid must have been built with the solid OBBs of all placed bays.
+     *              Pass nullptr to fall back to brute-force O(N) checking.
      */
     static bool isValidPlacement(
         const Bay& candidate,
         const std::vector<Bay>& placed,
-        const StaticState* staticInfo
+        const StaticState* staticInfo,
+        const SpatialGrid* grid = nullptr
     );
 
     // --- Low-level SAT primitives ---

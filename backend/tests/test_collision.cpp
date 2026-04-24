@@ -225,6 +225,46 @@ void testSolidVsGapIsInvalid() {
          !CollisionChecker::isValidPlacement(second, placed, &s));
 }
 
+void testIsValidPlacementWithGrid() {
+    SECTION("isValidPlacement — with SpatialGrid (broad-phase)");
+
+    StaticState s = makeBasicState();
+
+    // Build a grid with cell size matching bay width
+    SpatialGrid grid(800.0);
+
+    Bay first = makeBay(0, 1000, 1000, 0);
+    OBB firstSolid = CollisionChecker::createSolidOBB(first, &s);
+    grid.insertBay(0, firstSolid);
+    std::vector<Bay> placed = {first};
+
+    // Overlapping bay — grid should narrow candidates to {first} and reject
+    Bay overlap = makeBay(0, 1200, 1000, 0);
+    TEST("Grid: overlapping bay is invalid",
+         !CollisionChecker::isValidPlacement(overlap, placed, &s, &grid));
+
+    // Adjacent bay — grid may return {first} as candidate, SAT clears it
+    Bay adjacent = makeBay(0, 1800, 1000, 0);
+    TEST("Grid: adjacent (touching) bay is valid",
+         CollisionChecker::isValidPlacement(adjacent, placed, &s, &grid));
+
+    // Far-away bay — grid returns no candidates, still valid
+    Bay farAway = makeBay(0, 7000, 7000, 0);
+    TEST("Grid: far-away bay is valid with no candidates checked",
+         CollisionChecker::isValidPlacement(farAway, placed, &s, &grid));
+
+    // Grid and brute-force must agree on every case
+    TEST("Grid agrees with brute-force on overlapping bay",
+         CollisionChecker::isValidPlacement(overlap, placed, &s, nullptr) ==
+         CollisionChecker::isValidPlacement(overlap, placed, &s, &grid));
+    TEST("Grid agrees with brute-force on adjacent bay",
+         CollisionChecker::isValidPlacement(adjacent, placed, &s, nullptr) ==
+         CollisionChecker::isValidPlacement(adjacent, placed, &s, &grid));
+    TEST("Grid agrees with brute-force on far-away bay",
+         CollisionChecker::isValidPlacement(farAway, placed, &s, nullptr) ==
+         CollisionChecker::isValidPlacement(farAway, placed, &s, &grid));
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -241,6 +281,7 @@ int main() {
     testIsValidPlacementInterBay();
     testGapVsGapIsValid();
     testSolidVsGapIsInvalid();
+    testIsValidPlacementWithGrid();
 
     std::cout << "\n=== Results: " << passed << " passed, " << failed << " failed ===\n";
     return failed > 0 ? 1 : 0;

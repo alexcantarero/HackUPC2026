@@ -86,7 +86,8 @@ OBB CollisionChecker::createObstacleOBB(const Obstacle& obs) {
 bool CollisionChecker::isValidPlacement(
     const Bay& candidate,
     const std::vector<Bay>& placed,
-    const StaticState* staticInfo)
+    const StaticState* staticInfo,
+    const SpatialGrid* grid)
 {
     const BayType* type = getBayType(candidate.typeId, staticInfo);
     if (!type) return false;
@@ -107,14 +108,35 @@ bool CollisionChecker::isValidPlacement(
         if (checkOBBvsOBB(gapOBB,   obsOBB)) return false;
     }
 
-    // 5, 6, 7. Inter-bay collision checks (gap vs gap is intentionally skipped)
-    for (const auto& other : placed) {
-        OBB otherSolid = createSolidOBB(other, staticInfo);
-        OBB otherGap   = createGapOBB(other, staticInfo);
+    // 5, 6, 7. Inter-bay collision checks (gap vs gap is intentionally skipped).
+    // Broad-phase: query grid with both solid and gap OBBs to get nearby candidates,
+    // then narrow-phase SAT only against those. Falls back to O(N) without a grid.
+    if (grid) {
+        auto solidCands = grid->getPotentialBayCollisions(solidOBB);
+        auto gapCands   = grid->getPotentialBayCollisions(gapOBB);
 
-        if (checkOBBvsOBB(solidOBB, otherSolid)) return false; // solid vs solid
-        if (checkOBBvsOBB(solidOBB, otherGap))   return false; // solid vs gap
-        if (checkOBBvsOBB(gapOBB,   otherSolid)) return false; // gap vs solid
+        // Union both candidate sets (grid is keyed on solid OBBs, querying with both
+        // OBBs ensures we catch: other-solid-near-our-solid and other-solid-near-our-gap)
+        std::unordered_set<int> candidates(solidCands.begin(), solidCands.end());
+        candidates.insert(gapCands.begin(), gapCands.end());
+
+        for (int idx : candidates) {
+            const OBB otherSolid = createSolidOBB(placed[idx], staticInfo);
+            const OBB otherGap   = createGapOBB(placed[idx], staticInfo);
+
+            if (checkOBBvsOBB(solidOBB, otherSolid)) return false; // solid vs solid
+            if (checkOBBvsOBB(solidOBB, otherGap))   return false; // solid vs gap
+            if (checkOBBvsOBB(gapOBB,   otherSolid)) return false; // gap vs solid
+        }
+    } else {
+        for (const auto& other : placed) {
+            const OBB otherSolid = createSolidOBB(other, staticInfo);
+            const OBB otherGap   = createGapOBB(other, staticInfo);
+
+            if (checkOBBvsOBB(solidOBB, otherSolid)) return false; // solid vs solid
+            if (checkOBBvsOBB(solidOBB, otherGap))   return false; // solid vs gap
+            if (checkOBBvsOBB(gapOBB,   otherSolid)) return false; // gap vs solid
+        }
     }
 
     return true;
@@ -135,7 +157,9 @@ void CollisionChecker::projectOBB(const OBB& obb, const Point2D& axis, double& m
 }
 
 bool CollisionChecker::overlap(double minA, double maxA, double minB, double maxB) {
-    return !(minA > maxB || maxA < minB);
+    // Strict: touching edges (minA == maxB) are NOT considered overlapping.
+    // The problem spec allows bays to share boundaries.
+    return !(minA >= maxB || maxA <= minB);
 }
 
 bool CollisionChecker::checkOBBvsOBB(const OBB& a, const OBB& b) {
