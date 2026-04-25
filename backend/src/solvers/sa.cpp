@@ -1,6 +1,6 @@
 #include "sa.hpp"
 #include "../core/collision.hpp"
-#include <algorithm>
+#include <algorithm>    
 #include <array>
 #include <cmath>
 #include "../core/score.hpp"
@@ -17,7 +17,7 @@ SimulatedAnnealing::SimulatedAnnealing(const StaticState& info, uint64_t seed)
 {}
 
 // ── run() ─────────────────────────────────────────────────────────────────────
-
+/*
 void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
     // Phase 1: greedy warm start
     GreedySolver greedy(info_, rng_());
@@ -35,19 +35,152 @@ void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
 
     std::uniform_int_distribution<int> move_dist(0, 1);
 
-    while (!stop_flag) {
-        bool accepted = (move_dist(rng_) == 0)
-                        ? moveRelocate(T)
-                        : moveReplaceType(T);
+    int epoch_length = current_bays_.size() * 20; // Example: Try 20 moves per bay before cooling
 
-        if (accepted) {
-            Solution currentSol;
-            currentSol.bays   = current_bays_;
-            calculateMetrics(currentSol);
-            updateBest(currentSol);
+    while (!stop_flag) {
+        for (int step = 0; step < epoch_length && !stop_flag; ++step) {
+            bool accepted = (move_dist(rng_) == 0)
+                            ? moveRelocate(T)
+                            : moveReplaceType(T);
+
+            if (accepted) {
+                Solution currentSol;
+                currentSol.bays = current_bays_;
+                calculateMetrics(currentSol);
+                updateBest(currentSol);
+            }
+        }
+        // Only cool down AFTER the epoch finishes
+        T *= ALPHA; 
+    }
+
+}
+*/
+
+// run() with dynamic temperature based on elapsed time to ensure we respect the 30s limit without relying on a fixed ALPHA
+/*
+void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
+    // Phase 1: greedy warm start
+    GreedySolver greedy(info_, rng_());
+    greedy.fillPass();
+    initFromBays(greedy.best().bays);
+    updateBest(greedy.best());
+
+    if (current_bays_.empty()) return;
+
+    // Phase 2: SA Setup
+    const double T0 = calibrateT0();
+    
+    // Set your time budget slightly under the 29s limit to ensure safe exit
+    const double MAX_TIME_SEC = 28.9; 
+    
+    auto start_time = std::chrono::steady_clock::now();
+    
+    // Epoch length: how many moves to try before checking the clock and cooling.
+    // Adjust this so you check the clock frequently enough, but not so often 
+    // that chrono slows down your loop. 500-2000 is usually a sweet spot.
+    const int EPOCH_LENGTH = 1000; 
+
+    std::uniform_int_distribution<int> move_dist(0, 1);
+
+    while (!stop_flag) {
+        // 1. Check the clock
+        auto now = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsed_chrono = now - start_time;
+        double elapsed = elapsed_chrono.count();
+
+        // 2. Safety break if we exceed our internal budget
+        if (elapsed >= MAX_TIME_SEC) {
+            break; 
         }
 
-        T *= ALPHA;
+        // 3. Calculate dynamic temperature
+        double progress = elapsed / MAX_TIME_SEC;
+        // Using power of 3 for a smooth curve with a long fine-tuning tail
+        double T = T0 * std::pow(1.0 - progress, 3.0); 
+
+        // 4. Run the epoch at this temperature
+        for (int step = 0; step < EPOCH_LENGTH && !stop_flag; ++step) {
+            bool accepted = (move_dist(rng_) == 0)
+                            ? moveRelocate(T)
+                            : moveReplaceType(T);
+
+            if (accepted) {
+                Solution currentSol;
+                currentSol.bays = current_bays_;
+                calculateMetrics(currentSol);
+                updateBest(currentSol);
+            }
+        }
+    }
+}
+*/
+
+void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
+    // Phase 1: greedy warm start
+    GreedySolver greedy(info_, rng_());
+    greedy.fillPass();
+    initFromBays(greedy.best().bays);
+    updateBest(greedy.best());
+
+    if (current_bays_.empty()) return;
+
+    // Phase 2: SA Setup
+    const double T0 = calibrateT0();
+    
+    const double MAX_TIME_SEC = 28.9; 
+    const int NUM_SEASONS = 3; 
+    const double SEASON_TIME = MAX_TIME_SEC / NUM_SEASONS;
+    
+    auto start_time = std::chrono::steady_clock::now();
+    const int EPOCH_LENGTH = 1000; 
+    
+    int current_season = 0;
+
+    // 0 = Relocate, 1 = Replace Type, 2 = Jitter (Jitter unused for now, but can be added as a 3rd move type if desired, doesn't really work well)
+    std::uniform_int_distribution<int> move_dist(0, 1);
+
+    while (!stop_flag) {
+        // 1. Check the clock
+        auto now = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(now - start_time).count();
+
+        // 2. Safety break
+        if (elapsed >= MAX_TIME_SEC) break; 
+
+        // 3. Determine our current season
+        int calc_season = static_cast<int>(elapsed / SEASON_TIME);
+
+        // 4. REHEATING TRIGGER: Did we just cross into a new season?
+        if (calc_season > current_season) {
+            current_season = calc_season;
+            
+            // Teleport back to the best known solution to branch off in a new direction.
+            // initFromBays does an O(N) grid rebuild, but doing it once every 9.6 seconds
+            // has zero negative impact on performance.
+            initFromBays(best_.bays); 
+        }
+
+        // 5. Calculate progress within the CURRENT season (0.0 to 1.0)
+        double season_elapsed = elapsed - (current_season * SEASON_TIME);
+        double progress = season_elapsed / SEASON_TIME;
+
+        // 6. Calculate dynamic temperature for this season
+        double T = T0 * std::pow(1.0 - progress, 3.0); 
+
+        // 7. Run the epoch
+        for (int step = 0; step < EPOCH_LENGTH && !stop_flag; ++step) {
+            bool accepted = (move_dist(rng_) == 0)
+                            ? moveRelocate(T)
+                            : moveReplaceType(T);
+
+            if (accepted) {
+                Solution currentSol;
+                currentSol.bays = current_bays_;
+                calculateMetrics(currentSol);
+                updateBest(currentSol);
+            }
+        }
     }
 }
 
@@ -86,12 +219,45 @@ void SimulatedAnnealing::rebuildEventPoints() {
     }
 }
 
+/*
 Bay SimulatedAnnealing::removeBayAt(int idx) {
     Bay removed = current_bays_[idx];
     current_bays_.erase(current_bays_.begin() + idx);
     current_grid_.clearBays();
     for (int i = 0; i < static_cast<int>(current_bays_.size()); ++i)
         current_grid_.insertBay(i, CollisionChecker::createSolidOBB(current_bays_[i], &info_));
+    return removed;
+}
+*/
+
+Bay SimulatedAnnealing::removeBayAt(int idx) {
+    Bay removed = current_bays_[idx];
+    int last_idx = static_cast<int>(current_bays_.size()) - 1;
+
+    // 1. Remove the target bay from the spatial grid O(1)
+    OBB removed_obb = CollisionChecker::createSolidOBB(removed, &info_);
+    current_grid_.removeBay(idx, removed_obb);
+
+    // 2. If the bay we are removing is NOT already the last element,
+    // we need to perform a swap-and-pop to avoid an O(N) std::erase shift.
+    if (idx != last_idx) {
+        // Get the last bay
+        Bay last_bay = current_bays_[last_idx];
+        OBB last_obb = CollisionChecker::createSolidOBB(last_bay, &info_);
+
+        // Remove the last bay from the grid at its OLD index
+        current_grid_.removeBay(last_idx, last_obb);
+
+        // Move the last bay into the vacated spot in the vector
+        current_bays_[idx] = last_bay;
+
+        // Re-insert the moved bay into the grid at its NEW index (idx)
+        current_grid_.insertBay(idx, last_obb);
+    }
+
+    // 3. Pop the duplicated last element from the vector
+    current_bays_.pop_back();
+
     return removed;
 }
 
@@ -173,6 +339,44 @@ bool SimulatedAnnealing::moveRelocate(double T) {
 }
 
 // ── Move: Replace Type ────────────────────────────────────────────────────────
+
+bool SimulatedAnnealing::moveJitter(double T) {
+    (void)T; // ΔQ = 0 for spatial jitter -> thermodynamically always accepted
+    if (current_bays_.empty()) return false;
+
+    std::uniform_int_distribution<int> bay_dist(0, static_cast<int>(current_bays_.size()) - 1);
+    
+    // Tiny continuous adjustments: e.g., max 2.0 units of distance, max 3.0 degrees of rotation
+    std::uniform_real_distribution<double> shift_dist(-2.0, 2.0); 
+    std::uniform_real_distribution<double> rot_dist(-3.0, 3.0);   
+
+    int idx = bay_dist(rng_);
+    Bay removed = removeBayAt(idx);
+
+    // Apply micro-adjustments
+    Bay candidate = removed;
+    candidate.x += shift_dist(rng_);
+    candidate.y += shift_dist(rng_);
+    candidate.rotation += rot_dist(rng_);
+
+    // Normalize rotation if your engine requires it (e.g., 0 to 360)
+    if (candidate.rotation < 0.0) candidate.rotation += 360.0;
+    if (candidate.rotation >= 360.0) candidate.rotation -= 360.0;
+
+    // Metropolis check: Jitter doesn't change area/ratio (since type is the same), 
+    // so Delta Score is 0. We ALWAYS accept it if it's physically valid!
+    if (CollisionChecker::isValidPlacement(candidate, current_bays_, &info_, &current_grid_)) {
+        appendBay(candidate);
+        // Note: rebuildEventPoints() is optional here depending on how strict you want to be,
+        // but doing it keeps your event_points_ accurate for the macro moves.
+        rebuildEventPoints(); 
+        return true;
+    }
+
+    // Reject: restore original
+    appendBay(removed);
+    return false;
+}
 
 bool SimulatedAnnealing::moveReplaceType(double T) {
     if (current_bays_.empty() || info_.bayTypes.size() < 2) return false;

@@ -126,6 +126,7 @@ public:
     
     // Returns indices of bays that MIGHT collide with the given OBB
     std::vector<int> getPotentialBayCollisions(const OBB& obb) const;
+    void getPotentialBayCollisions(const OBB& obb, std::vector<int>& out_bays) const;
     
     // Returns indices of obstacles that MIGHT collide with the given OBB
     std::vector<int> getPotentialObstacleCollisions(const OBB& obb) const;
@@ -133,6 +134,8 @@ public:
     // Clears all dynamic entities (bays). Obstacles can be kept if they are static.
     void clearBays();
     void clearAll();
+    void removeBay(int bayIndex, const OBB &obb);
+
 
 private:
     double cellSize;

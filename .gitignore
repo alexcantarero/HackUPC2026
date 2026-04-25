@@ -35,6 +35,9 @@ backend/**/*.d
 *.d
 *.out
 
+# Output data
+data/output/*
+
 # Compiler / vite cache
 .cache/
 .vite/

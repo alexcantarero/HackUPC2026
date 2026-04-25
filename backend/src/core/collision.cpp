@@ -143,14 +143,17 @@ bool CollisionChecker::isValidPlacement(
     // Broad-phase: query grid with both solid and gap OBBs to get nearby candidates,
     // then narrow-phase SAT only against those. Falls back to O(N) without a grid.
     if (grid) {
-        auto solidCands = grid->getPotentialBayCollisions(solidOBB);
-        auto gapCands   = grid->getPotentialBayCollisions(gapOBB);
+        // Use thread_local so the memory capacity is preserved across millions of calls,
+        // meaning ZERO heap allocations after the first few iterations.
+        thread_local std::vector<int> candidates;
+        candidates.clear(); // Resets size to 0, but keeps capacity!
 
-        // Union both candidate sets (grid is keyed on solid OBBs, querying with both
-        // OBBs ensures we catch: other-solid-near-our-solid and other-solid-near-our-gap)
-        std::unordered_set<int> candidates(solidCands.begin(), solidCands.end());
-        candidates.insert(gapCands.begin(), gapCands.end());
+        // Accumulate unique candidates directly into the single vector
+        grid->getPotentialBayCollisions(solidOBB, candidates);
+        grid->getPotentialBayCollisions(gapOBB, candidates);
 
+        // Now 'candidates' contains the pure union of both queries, 
+        // without ever using an unordered_set.
         for (int idx : candidates) {
             const OBB otherSolid = createSolidOBB(placed[idx], staticInfo);
             const OBB otherGap   = createGapOBB(placed[idx], staticInfo);
@@ -159,7 +162,8 @@ bool CollisionChecker::isValidPlacement(
             if (checkOBBvsOBB(solidOBB, otherGap))   return false; // solid vs gap
             if (checkOBBvsOBB(gapOBB,   otherSolid)) return false; // gap vs solid
         }
-    } else {
+    } 
+    else {
         for (const auto& other : placed) {
             const OBB otherSolid = createSolidOBB(other, staticInfo);
             const OBB otherGap   = createGapOBB(other, staticInfo);
@@ -346,6 +350,28 @@ std::vector<int> SpatialGrid::getPotentialBayCollisions(const OBB& obb) const {
     return std::vector<int>(uniqueBays.begin(), uniqueBays.end());
 }
 
+// Change signature to pass-by-reference
+void SpatialGrid::getPotentialBayCollisions(const OBB& obb, std::vector<int>& out_bays) const {
+    out_bays.clear(); // Re-use the existing capacity!
+    int minX, maxX, minY, maxY;
+    getGridBounds(obb, minX, maxX, minY, maxY);
+
+    for (int x = minX; x <= maxX; ++x) {
+        for (int y = minY; y <= maxY; ++y) {
+            GridKey key = {x, y};
+            auto it = gridBays.find(key);
+            if (it != gridBays.end()) {
+                for (int bayIndex : it->second) {
+                    // For small N (like 11 bays), std::find is WAY faster than hashing into a set
+                    if (std::find(out_bays.begin(), out_bays.end(), bayIndex) == out_bays.end()) {
+                        out_bays.push_back(bayIndex);
+                    }
+                }
+            }
+        }
+    }
+}
+
 std::vector<int> SpatialGrid::getPotentialObstacleCollisions(const OBB& obb) const {
     int minX, maxX, minY, maxY;
     getGridBounds(obb, minX, maxX, minY, maxY);
@@ -364,6 +390,27 @@ std::vector<int> SpatialGrid::getPotentialObstacleCollisions(const OBB& obb) con
     }
 
     return std::vector<int>(uniqueObs.begin(), uniqueObs.end());
+}
+
+void SpatialGrid::removeBay(int bayIndex, const OBB& obb) {
+    int minX, maxX, minY, maxY;
+    getGridBounds(obb, minX, maxX, minY, maxY);
+
+    for (int x = minX; x <= maxX; ++x) {
+        for (int y = minY; y <= maxY; ++y) {
+            GridKey key = {x, y};
+            auto it = gridBays.find(key);
+            if (it != gridBays.end()) {
+                auto& cellBays = it->second;
+                // Find the bay and do a fast O(1) removal
+                auto bay_it = std::find(cellBays.begin(), cellBays.end(), bayIndex);
+                if (bay_it != cellBays.end()) {
+                    *bay_it = cellBays.back(); // Swap with last element
+                    cellBays.pop_back();       // Remove last element
+                }
+            }
+        }
+    }
 }
 
 void SpatialGrid::clearBays() {
