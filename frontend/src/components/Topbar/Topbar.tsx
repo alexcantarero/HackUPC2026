@@ -21,12 +21,7 @@ export default function Topbar({
 
   return (
     <div className="topbar" style={isMobile ? { justifyContent: 'center' } : {}}>
-      {!isMobile && (
-        <div className="leading-tooltip" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
-          Mecalux Bay Distributor
-        </div>
-      )}
-      {!isMobile && <div className="central-functions"></div>}
+      <div className="central-functions"></div>
       <div className="trailing-functions" style={{ display: 'flex', gap: '8px', justifyContent: isMobile ? 'center' : 'flex-end', width: isMobile ? '100%' : 'auto' }}>
         <Button
           variant="contained"
