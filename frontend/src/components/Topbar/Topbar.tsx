@@ -2,6 +2,7 @@ import "./Topbar.css";
 import FileUploadIcon from "@mui/icons-material/FileUpload";
 import ClearAllIcon from "@mui/icons-material/ClearAll";
 import VideocamIcon from "@mui/icons-material/Videocam";
+import ViewInArIcon from "@mui/icons-material/ViewInAr";
 import {
   Button,
   FormControl,
@@ -17,12 +18,16 @@ type TopbarProps = {
   caseNumber: number;
   onCaseChange: (caseNumber: number) => void;
   onToggleCameraView: () => void;
+  onToggleGaps: () => void;
+  showGaps: boolean;
 };
 
 export default function Topbar({
   caseNumber,
   onCaseChange,
   onToggleCameraView,
+  onToggleGaps,
+  showGaps,
 }: TopbarProps) {
   const [casesMenuAnchor, setCasesMenuAnchor] = useState<null | HTMLElement>(
     null,
@@ -48,6 +53,16 @@ export default function Topbar({
       <div className="leading-tooltip">Mecalux Bay Distributor</div>
       <div className="central-functions"></div>
       <div className="trailing-functions">
+        <Button
+          variant="contained"
+          sx={{ 
+            backgroundColor: showGaps ? "#ed8200" : "#288aed",
+            "&:hover": { backgroundColor: showGaps ? "#d67500" : "#2176c7" }
+          }}
+          onClick={onToggleGaps}
+        >
+          <ViewInArIcon />
+        </Button>
         <Button variant="contained" sx={{ backgroundColor: "#288aed" }}>
           <FileUploadIcon />
         </Button>

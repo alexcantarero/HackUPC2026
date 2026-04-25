@@ -59,16 +59,23 @@ function getCaseCsv(
 function parseBaysCsv(csvString: string) {
   if (!csvString) return {};
   const lines = csvString.trim().split("\n");
-  const data: Record<number, { width: number; depth: number; height: number }> =
-    {};
+  const data: Record<
+    number,
+    { width: number; depth: number; height: number; gap: number }
+  > = {};
 
   for (let i = 0; i < lines.length; i++) {
     const cols = lines[i].split(",").map((s) => Number(s.trim()));
     if (
-      cols.length >= 4 &&
-      cols.slice(0, 4).every((value) => Number.isFinite(value))
+      cols.length >= 5 &&
+      cols.slice(0, 5).every((value) => Number.isFinite(value))
     ) {
-      data[cols[0]] = { width: cols[1], depth: cols[2], height: cols[3] };
+      data[cols[0]] = {
+        width: cols[1],
+        depth: cols[2],
+        height: cols[3],
+        gap: cols[4],
+      };
     }
   }
   return data;
@@ -104,6 +111,131 @@ function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
 }
 
+function GapBox({
+  width,
+  gap,
+  depth,
+  height,
+}: {
+  width: number;
+  gap: number;
+  depth: number;
+  height: number;
+}) {
+  const gapDepth = gap * WORLD_SCALE;
+  // Position it in FRONT of the bay. 
+  // The group is at [anchorX, FLOOR_Y, anchorZ]. 
+  // ProceduralShelf is centered at [width/2, ..., -depth/2].
+  // So "Front" is at Z = -depth. The gap should extend from -depth to -depth - gapDepth.
+  return (
+    <mesh position={[width / 2, height / 2, -depth - gapDepth / 2]}>
+      <boxGeometry args={[width, height, gapDepth]} />
+      <meshStandardMaterial
+        color="#ff0000"
+        transparent
+        opacity={0.25}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+function ProceduralShelf({
+  width,
+  height,
+  depth,
+  color = "#3a82f7",
+}: {
+  width: number;
+  height: number;
+  depth: number;
+  color?: string;
+}) {
+  const pillarSize = 0.15;
+  const shelfThickness = 0.1;
+  const numLevels = 4; // This creates exactly 3 gaps
+  const zFightingOffset = 0.01;
+  const boundaryInset = 0.01; // Inset pillars to let floor/walls win the sides
+  const pillarHeight = height - 0.05; // Slightly shorter to let top shelf win
+
+  return (
+    <group position={[width / 2, zFightingOffset, -depth / 2]}>
+      {/* 4 Vertical Pillars */}
+      {/* Front Left */}
+      <mesh
+        position={[
+          -width / 2 + pillarSize / 2 + boundaryInset,
+          pillarHeight / 2,
+          depth / 2 - pillarSize / 2 - boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+      {/* Front Right */}
+      <mesh
+        position={[
+          width / 2 - pillarSize / 2 - boundaryInset,
+          pillarHeight / 2,
+          depth / 2 - pillarSize / 2 - boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+      {/* Back Left */}
+      <mesh
+        position={[
+          -width / 2 + pillarSize / 2 + boundaryInset,
+          pillarHeight / 2,
+          -depth / 2 + pillarSize / 2 + boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+      {/* Back Right */}
+      <mesh
+        position={[
+          width / 2 - pillarSize / 2 - boundaryInset,
+          pillarHeight / 2,
+          -depth / 2 + pillarSize / 2 + boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+
+      {/* Horizontal Shelves */}
+      {Array.from({ length: numLevels }).map((_, i) => {
+        const bottomGap = 1;
+        const availableHeight = height - shelfThickness - bottomGap;
+        const yPos = bottomGap + (i / (numLevels - 1)) * availableHeight;
+        const isTop = i === numLevels - 1;
+
+        return (
+          <mesh key={i} position={[0, yPos + shelfThickness / 2, 0]}>
+            {/* Top shelf extends slightly past the pillars to win Z-fighting on both top and side faces */}
+            <boxGeometry
+              args={[
+                isTop
+                  ? width - boundaryInset * 2 + 0.02
+                  : width - (boundaryInset + pillarSize) * 0.5,
+                shelfThickness,
+                isTop
+                  ? depth - boundaryInset * 2 + 0.02
+                  : depth - (boundaryInset + pillarSize) * 0.5,
+              ]}
+            />
+            <meshStandardMaterial color={color} />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+
 // --- MAIN COMPONENT ---
 export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
@@ -112,6 +244,11 @@ export default function App() {
   const [caseNumber, setCaseNumber] = useState(DEFAULT_CASE_NUMBER);
   const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
   const [, setIsTopView] = useState(false);
+  const [showGaps, setShowGaps] = useState(false);
+
+  const toggleGaps = useCallback(() => {
+    setShowGaps((prev) => !prev);
+  }, []);
 
   const setTopView = useCallback(() => {
     cameraControlsRef.current?.setLookAt(
@@ -235,6 +372,8 @@ export default function App() {
         caseNumber={caseNumber}
         onCaseChange={setCaseNumber}
         onToggleCameraView={toggleCameraView}
+        onToggleGaps={toggleGaps}
+        showGaps={showGaps}
       />
       <div className="canvas-container">
         <Canvas
@@ -311,8 +450,14 @@ export default function App() {
               const anchorX = item.x * WORLD_SCALE - warehouseCenter.centerX;
               const anchorZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
 
-              // 3. THE FIX: Standard Positive Counter-Clockwise rotation!
+              // 3. Rotation
               const rotationY = THREE.MathUtils.degToRad(item.rot);
+
+              // 4. Generate color based on ID
+              // Shift the hue by 40 degrees and restrict to a 300-degree range
+              // to avoid the red spectrum (0-40 and 340-360) used by gaps.
+              const hue = 40 + (item.id * 137.5) % 300; 
+              const color = `hsl(${hue}, 85%, 45%)`;
 
               return (
                 <group
@@ -320,13 +465,20 @@ export default function App() {
                   position={[anchorX, FLOOR_Y, anchorZ]}
                   rotation={[0, rotationY, 0]}
                 >
-                  {/* Local pivot is bottom-left (0,0). 
-                    We offset half the width (+X) and half the depth (-Z) 
-                    so the mesh perfectly spans its footprint entirely inside the warehouse. */}
-                  <mesh position={[boxWidth / 2, boxHeight / 2, -boxDepth / 2]}>
-                    <boxGeometry args={[boxWidth, boxHeight, boxDepth]} />
-                    <meshStandardMaterial color="#3a82f7" />
-                  </mesh>
+                  <ProceduralShelf
+                    width={boxWidth}
+                    height={boxHeight}
+                    depth={boxDepth}
+                    color={color}
+                  />
+                  {showGaps && (
+                    <GapBox
+                      width={boxWidth}
+                      gap={bay.gap}
+                      depth={boxDepth}
+                      height={boxHeight}
+                    />
+                  )}
                 </group>
               );
             })}
