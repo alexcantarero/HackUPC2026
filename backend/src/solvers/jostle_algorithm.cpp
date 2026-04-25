@@ -97,13 +97,136 @@ bool JostleAlgorithm::changeBayType(std::vector<Bay>& state, int bayIndex, int n
     return false;
 }
 
+double JostleAlgorithm::polygonArea(const std::vector<Point2D>& polygon) {
+    if (polygon.size() < 3) return 0.0;
+    double twice_area = 0.0;
+    for (size_t i = 0; i < polygon.size(); ++i) {
+        const size_t j = (i + 1) % polygon.size();
+        twice_area += polygon[i].x * polygon[j].y - polygon[j].x * polygon[i].y;
+    }
+    return std::abs(twice_area) * 0.5;
+}
+
+double JostleAlgorithm::evaluateQ(const std::vector<Bay>& state) const {
+    double value_term = 0.0;
+    double used_area = 0.0;
+
+    for (const auto& bay : state) {
+        const BayType* bay_type = CollisionChecker::getBayType(bay.typeId, &info_);
+        if (bay_type == nullptr || bay_type->nLoads <= 0.0) continue;
+        value_term += bay_type->price / bay_type->nLoads;
+        used_area += bay_type->width * bay_type->depth;
+    }
+
+    const double warehouse_area = polygonArea(info_.warehousePolygon);
+    if (warehouse_area <= 0.0) return std::numeric_limits<double>::max();
+
+    return value_term * value_term - (used_area / warehouse_area);
+}
+
 void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
-    // Initial dummy state or starting state logic will go here.
-    // For now, we just loop until stop_flag or maxIterations is reached.
+    // Basic initialization: start with an empty layout or generate a random initial state
+    // For a local search, it's better to start with some valid state. We'll start empty.
+    std::vector<Bay> current_state;
+    double current_score = evaluateQ(current_state);
+    
+    Solution initialSol;
+    initialSol.bays = current_state;
+    initialSol.score = current_score;
+    updateBest(initialSol);
+
+    std::uniform_real_distribution<double> move_dist(-1.0, 1.0);
+    std::uniform_real_distribution<double> rot_dist(-15.0, 15.0);
+    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+    std::uniform_int_distribution<int> op_dist(0, 3);
+
     int iterations = 0;
+    int stagnation = 0;
+    double temp = 100.0;
+    const double cooling_rate = 0.99;
+
     while (!stop_flag && iterations < maxIterations_) {
-        // TODO: Implement local search logic here
-        
+        // If empty, try to insert a random bay
+        if (current_state.empty()) {
+            if (info_.bayTypes.empty()) break;
+            std::uniform_int_distribution<int> type_dist(0, info_.bayTypes.size() - 1);
+            Bay newBay;
+            newBay.typeId = info_.bayTypes[type_dist(rng_)].id;
+            
+            // Random point in warehouse bounding box roughly
+            double minX = info_.warehousePolygon[0].x, maxX = minX;
+            double minY = info_.warehousePolygon[0].y, maxY = minY;
+            for(auto p : info_.warehousePolygon) {
+                if(p.x < minX) minX = p.x;
+                if(p.x > maxX) maxX = p.x;
+                if(p.y < minY) minY = p.y;
+                if(p.y > maxY) maxY = p.y;
+            }
+            std::uniform_real_distribution<double> x_dist(minX, maxX);
+            std::uniform_real_distribution<double> y_dist(minY, maxY);
+            std::uniform_real_distribution<double> init_rot_dist(0.0, 360.0);
+
+            newBay.x = x_dist(rng_);
+            newBay.y = y_dist(rng_);
+            newBay.rotation = init_rot_dist(rng_);
+
+            current_state.push_back(newBay);
+            if (!isValidState(current_state)) {
+                current_state.pop_back(); // revert
+            }
+        } else {
+            // Apply a random operator to a random bay
+            std::uniform_int_distribution<int> bay_dist(0, current_state.size() - 1);
+            int bayIndex = bay_dist(rng_);
+            int op = op_dist(rng_);
+            
+            std::vector<Bay> neighbor = current_state;
+            bool moved = false;
+
+            if (op == 0) { // Translate
+                moved = translateBay(neighbor, bayIndex, move_dist(rng_), move_dist(rng_));
+            } else if (op == 1) { // Rotate
+                moved = rotateBay(neighbor, bayIndex, rot_dist(rng_));
+            } else if (op == 2) { // Swap
+                if (current_state.size() > 1) {
+                    int bayIndex2 = bay_dist(rng_);
+                    moved = swapBays(neighbor, bayIndex, bayIndex2);
+                }
+            } else if (op == 3) { // Change Type
+                if (!info_.bayTypes.empty()) {
+                    std::uniform_int_distribution<int> type_dist(0, info_.bayTypes.size() - 1);
+                    moved = changeBayType(neighbor, bayIndex, info_.bayTypes[type_dist(rng_)].id);
+                }
+            }
+
+            if (moved) {
+                double neighbor_score = evaluateQ(neighbor);
+                double delta = neighbor_score - current_score;
+
+                // Simulated Annealing acceptance
+                if (delta < 0 || prob_dist(rng_) < std::exp(-delta / temp)) {
+                    current_state = std::move(neighbor);
+                    current_score = neighbor_score;
+
+                    if (current_score < best_.score) {
+                        Solution sol;
+                        sol.bays = current_state;
+                        sol.score = current_score;
+                        updateBest(sol);
+                        stagnation = 0;
+                    } else {
+                        stagnation++;
+                    }
+                } else {
+                    stagnation++;
+                }
+            } else {
+                stagnation++;
+            }
+        }
+
+        temp *= cooling_rate;
+        if (temp < 1e-3) temp = 100.0; // reheat
         iterations++;
     }
 }

@@ -18,6 +18,10 @@ public:
     // Full state validation helper
     bool isValidState(const std::vector<Bay>& state);
 
+    // Objective function
+    double evaluateQ(const std::vector<Bay>& state) const;
+
 private:
     int maxIterations_;
+    static double polygonArea(const std::vector<Point2D>& polygon);
 };
