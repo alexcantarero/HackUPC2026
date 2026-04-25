@@ -10,7 +10,8 @@ SRCS = $(SRCDIR)/main.cpp \
        $(SRCDIR)/solvers/greedy.cpp \
        $(SRCDIR)/solvers/genetic_algorithm.cpp \
        $(SRCDIR)/solvers/ga_angle.cpp \
-       $(SRCDIR)/solvers/ga_ortho.cpp
+       $(SRCDIR)/solvers/ga_ortho.cpp \
+       $(SRCDIR)/solvers/jostle_algorithm.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 
