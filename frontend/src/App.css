@@ -260,6 +260,31 @@
   color: #e3eefc;
 }
 
+.solver-view-layout-btn {
+  margin-top: 12px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(40, 138, 237, 0.4);
+  background: rgba(40, 138, 237, 0.12);
+  color: #c8e1fb;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.solver-view-layout-btn:hover {
+  background: rgba(40, 138, 237, 0.25);
+  border-color: rgba(40, 138, 237, 0.6);
+}
+
+.solver-view-layout-btn.active {
+  background: #288aed;
+  color: white;
+  border-color: #288aed;
+  box-shadow: 0 0 12px rgba(40, 138, 237, 0.4);
+}
+
 .solver-comparison-note {
   margin: 10px 0 0;
   font-size: 0.86rem;

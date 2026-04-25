@@ -50,6 +50,7 @@ type MockComparisonResult = {
   runtimeMs: string;
   outputFile: string;
   note: string;
+  outputCsv?: string | null;
 };
 
 // --- FILE LOADERS ---
@@ -329,6 +330,13 @@ export default function App() {
   const [comparisonResults, setComparisonResults] = useState<
     MockComparisonResult[]
   >([]);
+  const [activeLayoutCsv, setActiveLayoutCsv] = useState<string | null>(null);
+  const [selectedAlgoName, setSelectedAlgoName] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveLayoutCsv(null);
+    setSelectedAlgoName(null);
+  }, [caseNumber]);
 
   const toggleGaps = useCallback(() => {
     setShowGaps((prev) => !prev);
@@ -382,6 +390,8 @@ export default function App() {
 
       setSolverError("");
       setSolverResult(null);
+      setActiveLayoutCsv(null);
+      setSelectedAlgoName(null);
       setIsSubmittingSolver(true);
 
       const formData = new FormData();
@@ -425,6 +435,7 @@ export default function App() {
             runtimeMs: `${Math.round(ar.time_took_to_find_best_sol * 1000)} ms`,
             outputFile: ar.outputFile || "N/A",
             note: `Placed ${ar.number_of_bays} bays with training score ${ar.training_score.toFixed(2)}`,
+            outputCsv: ar.outputCsv,
           }));
           
           // Sort numerically using the new rawScore field
@@ -436,6 +447,9 @@ export default function App() {
         }
 
         setSolverResult(payload);
+        if (payload.outputCsv) {
+          setActiveLayoutCsv(payload.outputCsv);
+        }
       } catch {
         setSolverError(
           "Unable to reach solver API. Start it with: npm run api",
@@ -495,10 +509,11 @@ export default function App() {
         solverResult?.csvInputs?.types_of_bays ??
         getCaseCsv(bayFiles, caseNumber, "types_of_bays"),
       expected_output:
+        activeLayoutCsv ??
         solverResult?.outputCsv ??
         getCaseCsv(layoutFiles, caseNumber, "expected_output"),
     };
-  }, [caseNumber, solverResult]);
+  }, [caseNumber, solverResult, activeLayoutCsv]);
 
   const sceneGeometry = useMemo(
     () =>
@@ -745,6 +760,18 @@ export default function App() {
                   </div>
                 </div>
                 <p className="solver-comparison-note">{result.note}</p>
+                <button
+                  type="button"
+                  className={`solver-view-layout-btn ${selectedAlgoName === result.algorithm ? 'active' : ''}`}
+                  onClick={() => {
+                    if (result.outputCsv) {
+                      setActiveLayoutCsv(result.outputCsv);
+                      setSelectedAlgoName(result.algorithm);
+                    }
+                  }}
+                >
+                  {selectedAlgoName === result.algorithm ? 'Viewing Layout' : 'View Layout'}
+                </button>
               </article>
             ))}
           </div>
