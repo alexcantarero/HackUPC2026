@@ -100,8 +100,9 @@ bool CollisionChecker::isValidPlacement(
     const OBB solidOBB = createSolidOBB(candidate, staticInfo);
     const OBB gapOBB   = createGapOBB(candidate, staticInfo);
 
-    // 1. Solid must be fully inside the warehouse polygon
+    // 1. Solid and gap must be fully inside the warehouse polygon
     if (!isOBBInsidePolygon(solidOBB, staticInfo->warehousePolygon)) return false;
+    if (!isOBBInsidePolygon(gapOBB, staticInfo->warehousePolygon)) return false;
 
     // 2. Ceiling constraint on solid and gap.
     // The gap is the forklift aisle — if the ceiling is too low there, the bay
@@ -167,7 +168,9 @@ void CollisionChecker::projectOBB(const OBB& obb, const Point2D& axis, double& m
 bool CollisionChecker::overlap(double minA, double maxA, double minB, double maxB) {
     // Strict: touching edges (minA == maxB) are NOT considered overlapping.
     // The problem spec allows bays to share boundaries.
-    return !(minA >= maxB || maxA <= minB);
+    // We use a small epsilon to account for floating-point inaccuracies.
+    const double EPSILON = 1e-5;
+    return !(minA >= maxB - EPSILON || maxA <= minB + EPSILON);
 }
 
 bool CollisionChecker::checkOBBvsOBB(const OBB& a, const OBB& b) {
