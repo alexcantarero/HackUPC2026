@@ -59,7 +59,6 @@ body {
   top: 20px;
   left: 20px;
   width: 380px;
-  max-height: calc(100vh - 40px);
 }
 
 .solver-panel-header {
@@ -132,7 +131,6 @@ body {
 /* --- RESULTS CARDS --- */
 .solver-comparison {
   padding: 0 16px 16px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
