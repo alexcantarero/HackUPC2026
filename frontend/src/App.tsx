@@ -151,42 +151,6 @@ function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
 }
 
-function createMockComparisonResults(
-  caseNumber: number,
-): MockComparisonResult[] {
-  const caseOffset = caseNumber * 137;
-
-  return [
-    {
-      algorithm: "greedy",
-      title: "Greedy",
-      status: "Finished first",
-      bestScore: String(18240 - caseOffset),
-      runtimeMs: `${420 + (caseOffset % 80)} ms`,
-      outputFile: `solution_case${caseNumber}_greedy.csv`,
-      note: "Fast baseline, good for quick comparisons.",
-    },
-    {
-      algorithm: "sa",
-      title: "Simulated Annealing",
-      status: "Finished second",
-      bestScore: String(17980 - caseOffset),
-      runtimeMs: `${1180 + (caseOffset % 140)} ms`,
-      outputFile: `solution_case${caseNumber}_sa.csv`,
-      note: "Balances speed and exploration.",
-    },
-    {
-      algorithm: "genetic",
-      title: "Genetic",
-      status: "Finished last",
-      bestScore: String(17650 - caseOffset),
-      runtimeMs: `${2680 + (caseOffset % 220)} ms`,
-      outputFile: `solution_case${caseNumber}_genetic.csv`,
-      note: "Best mock score in this preview.",
-    },
-  ];
-}
-
 function GapBox({
   width,
   gap,
@@ -365,10 +329,6 @@ export default function App() {
     if (isSubmittingSolver) return;
     setShowSolverPanel(false);
   }, [isSubmittingSolver]);
-
-  const runMockComparison = useCallback(() => {
-    setComparisonResults(createMockComparisonResults(caseNumber));
-  }, [caseNumber]);
 
   const submitSolverRequest = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -666,47 +626,7 @@ export default function App() {
               {isSubmittingSolver ? "Running solver..." : "Upload and run"}
             </button>
           </form>
-          <div className="solver-comparison-actions">
-            <button
-              type="button"
-              className="solver-secondary"
-              onClick={runMockComparison}
-            >
-              Mock compare greedy / sa / genetic
-            </button>
-            <p>
-              This is a mock preview of a parallel run summary. Results are
-              shown in the left panel.
-            </p>
-          </div>
           {solverError && <p className="solver-error">{solverError}</p>}
-          {solverResult && (
-            <div className="solver-result">
-              <p>Status: {solverResult.message}</p>
-              <p>Best score: {solverResult.bestScore ?? "N/A"}</p>
-              <p>Exit code: {solverResult.exitCode}</p>
-              <p>Runtime: {Math.round(solverResult.durationMs)} ms</p>
-              {solverResult.outputFileName && (
-                <p>Output file: {solverResult.outputFileName}</p>
-              )}
-              <details>
-                <summary>stdout</summary>
-                <pre>{solverResult.stdout}</pre>
-              </details>
-              {solverResult.stderr && (
-                <details>
-                  <summary>stderr</summary>
-                  <pre>{solverResult.stderr}</pre>
-                </details>
-              )}
-              {solverResult.outputCsv && (
-                <details>
-                  <summary>output csv</summary>
-                  <pre>{solverResult.outputCsv}</pre>
-                </details>
-              )}
-            </div>
-          )}
         </div>
       )}
 
