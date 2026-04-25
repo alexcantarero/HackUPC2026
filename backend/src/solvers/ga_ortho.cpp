@@ -117,3 +117,20 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
     decoded.score = evaluateQ(decoded);
     return decoded;
 }
+
+void GAOrtho::mutateSwap(Chromosome& chromosome) {
+    if (chromosome.size() < 2) return;
+    std::uniform_int_distribution<int> dist(0, chromosome.size() - 1);
+    int idx1 = dist(rng_);
+    int idx2 = dist(rng_);
+    std::swap(chromosome[idx1], chromosome[idx2]);
+}
+
+void GAOrtho::mutateScramble(Chromosome& chromosome) {
+    if (chromosome.size() < 2) return;
+    std::uniform_int_distribution<int> dist(0, chromosome.size() - 1);
+    int start = dist(rng_);
+    int end = dist(rng_);
+    if (start > end) std::swap(start, end);
+    std::shuffle(chromosome.begin() + start, chromosome.begin() + end + 1, rng_);
+}

@@ -32,9 +32,20 @@ run: $(TARGET)
 test_collision: tests/test_collision.cpp \
                 $(SRCDIR)/core/collision.cpp \
                 $(SRCDIR)/io/parser.cpp
+TEST_SRCS = tests/test_collision.cpp \
+            $(SRCDIR)/core/collision.cpp \
+            $(SRCDIR)/io/parser.cpp
+
+TEST_GA_SRCS = tests/test_ga_ortho.cpp \
+               $(SRCDIR)/solvers/ga_ortho.cpp \
+               $(SRCDIR)/core/collision.cpp
+
+test: $(TEST_SRCS) $(TEST_GA_SRCS)
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) -o bin/test_collision $^
 	./bin/test_collision
+	$(CXX) $(CXXFLAGS) -o bin/test_ga_ortho $(TEST_GA_SRCS)
+	./bin/test_ga_ortho
 
 test_score: tests/test_score.cpp \
             $(SRCDIR)/core/score.cpp
