@@ -1,13 +1,351 @@
 import "./App.css";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { useRef, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import Shelf from "./models/shelf.jsx";
+import FadingDollhouseElement from "./components/FadingDollhouseElement";
+import {
+  buildSceneGeometry,
+  FLOOR_Y,
+  WORLD_SCALE,
+} from "./scene/buildSceneGeometry";
+import Topbar from "./components/Topbar/Topbar";
 
+const DEFAULT_CASE_NUMBER = 3;
+
+// --- FILE LOADERS ---
+const warehouseFiles = import.meta.glob(
+  "../../data/input/Case*/warehouse.csv",
+  { query: "?raw", import: "default", eager: true },
+) as Record<string, string>;
+
+const ceilingFiles = import.meta.glob("../../data/input/Case*/ceiling.csv", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+const obstacleFiles = import.meta.glob("../../data/input/Case*/obstacles.csv", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+const bayFiles = import.meta.glob("../../data/input/Case*/types_of_bays.csv", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+const layoutFiles = import.meta.glob(
+  "../../data/input/Case*/expected_output.csv",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+) as Record<string, string>;
+
+// --- PARSING FUNCTIONS ---
+function getCaseCsv(
+  files: Record<string, string>,
+  caseNumber: number,
+  kind: string,
+) {
+  const filePath = `../../data/input/Case${caseNumber}/${kind}.csv`;
+  return files[filePath] ?? "";
+}
+
+function parseBaysCsv(csvString: string) {
+  if (!csvString) return {};
+  const lines = csvString.trim().split("\n");
+  const data: Record<
+    number,
+    { width: number; depth: number; height: number; gap: number }
+  > = {};
+
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(",").map((s) => Number(s.trim()));
+    if (
+      cols.length >= 5 &&
+      cols.slice(0, 5).every((value) => Number.isFinite(value))
+    ) {
+      data[cols[0]] = {
+        width: cols[1],
+        depth: cols[2],
+        height: cols[3],
+        gap: cols[4],
+      };
+    }
+  }
+  return data;
+}
+
+function parseLayoutCsv(csvString: string) {
+  if (!csvString) return [];
+  const lines = csvString.trim().split("\n");
+  const data: Array<{ id: number; x: number; y: number; rot: number }> = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(",").map((s) => Number(s.trim()));
+    if (
+      cols.length >= 4 &&
+      cols.slice(0, 4).every((value) => Number.isFinite(value))
+    ) {
+      data.push({ id: cols[0], x: cols[1], y: cols[2], rot: cols[3] });
+    }
+  }
+  return data;
+}
+
+function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
+  if (!csvString) return [];
+  return csvString
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [xRaw, yRaw] = line.split(",").map((value) => Number(value.trim()));
+      return [xRaw, yRaw] as [number, number];
+    })
+    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+}
+
+function GapBox({
+  width,
+  gap,
+  depth,
+  height,
+}: {
+  width: number;
+  gap: number;
+  depth: number;
+  height: number;
+}) {
+  const gapDepth = gap * WORLD_SCALE;
+  // Position it in FRONT of the bay. 
+  // The group is at [anchorX, FLOOR_Y, anchorZ]. 
+  // ProceduralShelf is centered at [width/2, ..., -depth/2].
+  // So "Front" is at Z = -depth. The gap should extend from -depth to -depth - gapDepth.
+  return (
+    <mesh position={[width / 2, height / 2, -depth - gapDepth / 2]}>
+      <boxGeometry args={[width, height, gapDepth]} />
+      <meshStandardMaterial
+        color="#ff0000"
+        transparent
+        opacity={0.25}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+function ProceduralShelf({
+  width,
+  height,
+  depth,
+  color = "#3a82f7",
+}: {
+  width: number;
+  height: number;
+  depth: number;
+  color?: string;
+}) {
+  const pillarSize = 0.15;
+  const shelfThickness = 0.1;
+  const numLevels = 4; // This creates exactly 3 gaps
+  const zFightingOffset = 0.01;
+  const boundaryInset = 0.01; // Inset pillars to let floor/walls win the sides
+  const pillarHeight = height - 0.05; // Slightly shorter to let top shelf win
+
+  return (
+    <group position={[width / 2, zFightingOffset, -depth / 2]}>
+      {/* 4 Vertical Pillars */}
+      {/* Front Left */}
+      <mesh
+        position={[
+          -width / 2 + pillarSize / 2 + boundaryInset,
+          pillarHeight / 2,
+          depth / 2 - pillarSize / 2 - boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+      {/* Front Right */}
+      <mesh
+        position={[
+          width / 2 - pillarSize / 2 - boundaryInset,
+          pillarHeight / 2,
+          depth / 2 - pillarSize / 2 - boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+      {/* Back Left */}
+      <mesh
+        position={[
+          -width / 2 + pillarSize / 2 + boundaryInset,
+          pillarHeight / 2,
+          -depth / 2 + pillarSize / 2 + boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+      {/* Back Right */}
+      <mesh
+        position={[
+          width / 2 - pillarSize / 2 - boundaryInset,
+          pillarHeight / 2,
+          -depth / 2 + pillarSize / 2 + boundaryInset,
+        ]}
+      >
+        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
+        <meshStandardMaterial color="#333333" />
+      </mesh>
+
+      {/* Horizontal Shelves */}
+      {Array.from({ length: numLevels }).map((_, i) => {
+        const bottomGap = 1;
+        const availableHeight = height - shelfThickness - bottomGap;
+        const yPos = bottomGap + (i / (numLevels - 1)) * availableHeight;
+        const isTop = i === numLevels - 1;
+
+        return (
+          <mesh key={i} position={[0, yPos + shelfThickness / 2, 0]}>
+            {/* Top shelf extends slightly past the pillars to win Z-fighting on both top and side faces */}
+            <boxGeometry
+              args={[
+                isTop
+                  ? width - boundaryInset * 2 + 0.02
+                  : width - (boundaryInset + pillarSize) * 0.5,
+                shelfThickness,
+                isTop
+                  ? depth - boundaryInset * 2 + 0.02
+                  : depth - (boundaryInset + pillarSize) * 0.5,
+              ]}
+            />
+            <meshStandardMaterial color={color} />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+
+// --- MAIN COMPONENT ---
 export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
+  const cameraControlsRef = useRef<CameraControls>(null);
+  const [caseNumber, setCaseNumber] = useState(DEFAULT_CASE_NUMBER);
+  const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
+  const [, setIsTopView] = useState(false);
+  const [showGaps, setShowGaps] = useState(false);
+
+  const toggleGaps = useCallback(() => {
+    setShowGaps((prev) => !prev);
+  }, []);
+
+  const setTopView = useCallback(() => {
+    cameraControlsRef.current?.setLookAt(
+      0,
+      FLOOR_Y + 250,
+      0,
+      0,
+      FLOOR_Y,
+      0,
+      true,
+    );
+  }, []);
+
+  const setPerspectiveView = useCallback(() => {
+    cameraControlsRef.current?.setLookAt(
+      cameraPosition[0],
+      cameraPosition[1],
+      cameraPosition[2],
+      0,
+      FLOOR_Y,
+      0,
+      true,
+    );
+  }, [cameraPosition]);
+
+  const toggleCameraView = useCallback(() => {
+    setIsTopView((prevIsTopView) => {
+      const nextIsTopView = !prevIsTopView;
+      if (nextIsTopView) setTopView();
+      else setPerspectiveView();
+      return nextIsTopView;
+    });
+  }, [setPerspectiveView, setTopView]);
+
+  const sceneGeometry = useMemo(
+    () =>
+      buildSceneGeometry({
+        warehouseOutlineCsv: getCaseCsv(
+          warehouseFiles,
+          caseNumber,
+          "warehouse",
+        ),
+        ceilingCsv: getCaseCsv(ceilingFiles, caseNumber, "ceiling"),
+        obstaclesCsv: getCaseCsv(obstacleFiles, caseNumber, "obstacles"),
+      }),
+    [caseNumber],
+  );
+
+  // Re-added: Calculate center of the warehouse
+  const warehouseCenter = useMemo(() => {
+    const outlineCsv = getCaseCsv(warehouseFiles, caseNumber, "warehouse");
+    const points = parseWarehouseOutlineCsv(outlineCsv);
+
+    if (points.length === 0) {
+      return { centerX: 0, centerY: 0 };
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (const [x, y] of points) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+
+    return {
+      centerX: ((minX + maxX) / 2) * WORLD_SCALE,
+      centerY: ((minY + maxY) / 2) * WORLD_SCALE,
+    };
+  }, [caseNumber]);
+
+  // Re-added: Parse bay dimensions
+  const bayData = useMemo(() => {
+    const csv = getCaseCsv(bayFiles, caseNumber, "types_of_bays");
+    return parseBaysCsv(csv);
+  }, [caseNumber]);
+
+  // Re-added: Parse expected output locations
+  const layoutData = useMemo(() => {
+    const csv = getCaseCsv(layoutFiles, caseNumber, "expected_output");
+    return parseLayoutCsv(csv);
+  }, [caseNumber]);
+
+  useEffect(() => {
+    return () => {
+      sceneGeometry.floor.dispose();
+      for (const part of sceneGeometry.ceilingParts) part.geometry.dispose();
+      for (const cw of sceneGeometry.ceilingWalls) cw.geometry.dispose();
+      for (const wall of sceneGeometry.walls) wall.dispose();
+      for (const obstacle of sceneGeometry.obstacles)
+        obstacle.geometry.dispose();
+    };
+  }, [sceneGeometry]);
 
   useEffect(() => {
     if (lightRef.current && meshRef.current) {
@@ -16,20 +354,137 @@ export default function App() {
     }
   }, []);
 
-  return (
-    <div className="canvas-container">
-      <Canvas className="canvas" camera={{ position: [0, 5, 40], fov: 50 }}>
-        <color attach="background" args={["#bbbbbb"]} />
-        <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
+  useEffect(() => {
+    cameraControlsRef.current?.setLookAt(
+      cameraPosition[0],
+      cameraPosition[1],
+      cameraPosition[2],
+      0,
+      FLOOR_Y,
+      0,
+      false,
+    );
+  }, [cameraPosition]);
 
-        <ambientLight intensity={3} />
-        <mesh position={[0, -2, 0]} ref={meshRef}>
-          <boxGeometry args={[20, 0.25, 20]} />
-          <meshStandardMaterial color="#a3a3a3" />
-        </mesh>
-        <Shelf position={[0, -2, 0]} scale={0.05} />
-        <CameraControls makeDefault />
-      </Canvas>
+  return (
+    <div className="app-shell">
+      <Topbar
+        caseNumber={caseNumber}
+        onCaseChange={setCaseNumber}
+        onToggleCameraView={toggleCameraView}
+        onToggleGaps={toggleGaps}
+        showGaps={showGaps}
+      />
+      <div className="canvas-container">
+        <Canvas
+          className="canvas"
+          camera={{
+            position: cameraPosition,
+            fov: 50,
+          }}
+        >
+          <color attach="background" args={["#878787"]} />
+          <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
+          <ambientLight intensity={3} />
+
+          <mesh
+            position={[0, FLOOR_Y, 0]}
+            ref={meshRef}
+            geometry={sceneGeometry.floor}
+          >
+            <meshStandardMaterial color="#a3a3a3" />
+          </mesh>
+
+          {sceneGeometry.ceilingParts.map((part, index) => (
+            <FadingDollhouseElement
+              key={`ceiling-${index}`}
+              geometry={part.geometry}
+              positionY={FLOOR_Y + part.y}
+              thresholdY={part.y}
+            />
+          ))}
+
+          {sceneGeometry.ceilingWalls.map((cw, index) => (
+            <FadingDollhouseElement
+              key={`ceiling-wall-${index}`}
+              geometry={cw.geometry}
+              positionY={FLOOR_Y}
+              thresholdY={cw.topY}
+            />
+          ))}
+
+          {sceneGeometry.walls.map((wall, index) => (
+            <mesh
+              key={`wall-${index}`}
+              position={[0, FLOOR_Y, 0]}
+              geometry={wall}
+            >
+              <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+            </mesh>
+          ))}
+
+          {sceneGeometry.obstacles.map((obstacle, index) => (
+            <mesh
+              key={`obstacle-${index}`}
+              position={[
+                obstacle.position[0],
+                FLOOR_Y + obstacle.position[1],
+                obstacle.position[2],
+              ]}
+              geometry={obstacle.geometry}
+            >
+              <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
+            </mesh>
+          ))}
+          {layoutData &&
+            layoutData.map((item, index) => {
+              const bay = bayData[item.id];
+              if (!bay) return null; // Fallback if bay type is missing
+
+              // 1. Calculate actual world dimensions
+              const boxWidth = bay.width * WORLD_SCALE;
+              const boxHeight = bay.height * WORLD_SCALE;
+              const boxDepth = bay.depth * WORLD_SCALE;
+
+              // 2. Base layout coordinates matched to the centered warehouse
+              const anchorX = item.x * WORLD_SCALE - warehouseCenter.centerX;
+              const anchorZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
+
+              // 3. Rotation
+              const rotationY = THREE.MathUtils.degToRad(item.rot);
+
+              // 4. Generate color based on ID
+              // Shift the hue by 40 degrees and restrict to a 300-degree range
+              // to avoid the red spectrum (0-40 and 340-360) used by gaps.
+              const hue = 40 + (item.id * 137.5) % 300; 
+              const color = `hsl(${hue}, 85%, 45%)`;
+
+              return (
+                <group
+                  key={`bay-${item.id}-${index}`}
+                  position={[anchorX, FLOOR_Y, anchorZ]}
+                  rotation={[0, rotationY, 0]}
+                >
+                  <ProceduralShelf
+                    width={boxWidth}
+                    height={boxHeight}
+                    depth={boxDepth}
+                    color={color}
+                  />
+                  {showGaps && (
+                    <GapBox
+                      width={boxWidth}
+                      gap={bay.gap}
+                      depth={boxDepth}
+                      height={boxHeight}
+                    />
+                  )}
+                </group>
+              );
+            })}
+          <CameraControls ref={cameraControlsRef} makeDefault />
+        </Canvas>
+      </div>
     </div>
   );
 }
