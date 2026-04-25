@@ -12,6 +12,8 @@ import {
 } from "./scene/buildSceneGeometry";
 import Topbar from "./components/Topbar/Topbar";
 
+import SolverLoader from "./components/Loader/SolverLoader";
+
 const DEFAULT_CASE_NUMBER = 3;
 
 type RequiredCsvField = "warehouse" | "obstacles" | "ceiling" | "types_of_bays";
@@ -544,6 +546,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {isSubmittingSolver && <SolverLoader />}
       <Topbar
         caseNumber={caseNumber}
         onCaseChange={setCaseNumber}
