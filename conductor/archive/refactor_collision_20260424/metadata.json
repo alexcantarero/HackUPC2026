@@ -1,0 +1,8 @@
+{
+  "track_id": "refactor_collision_20260424",
+  "type": "chore",
+  "status": "new",
+  "created_at": "2026-04-24T00:00:00Z",
+  "updated_at": "2026-04-24T00:00:00Z",
+  "description": "check already implemented code in back_end folder, see if it complies with the specs, update status in GEMINI.md and conductor files and create a track for each solution to implement."
+}

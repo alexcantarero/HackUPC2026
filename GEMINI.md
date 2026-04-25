@@ -28,7 +28,7 @@
 
 ### 1.3 Objective Function
 The goal is to minimize $Q$:
-$$Q = \left( \sum_{\text{bay}} \frac{\text{price}}{\text{loads}} \right)^2 - \frac{\sum_{\text{bay}} \text{area}}{\text{area}_{\text{warehouse}}}$$
+$$Q = \left( \sum_{\text{bay}} \frac{\text{price}}{\text{loads}} \right)^ (2 - \frac{\sum_{\text{bay}} \text{area}}{\text{area}_{\text{warehouse}}})$$
 *Strategic Note:* We must pack bays with the lowest `price/loads` ratio, and we must pack *as many of them as possible* to maximize the subtracted area term, driving $Q$ as low as possible.
 
 ---
@@ -88,46 +88,22 @@ bool isValidPlacement(const BayState& candidate, const std::vector<BayState>& la
 
 ---
 
-## 4. Multi-Core Algorithmic Portfolio
+## 4. Parallel Algorithmic Execution
 
-With 6 CPU cores available, we utilize a parallel execution strategy. Each core runs an independent `<std::thread>` executing a different optimization algorithm. At $T = 29.0$ seconds, a global `std::atomic<bool> stop_flag` triggers, and the main thread harvests the lowest-$Q$ valid layout.
+With 6 CPU cores available, we utilize a parallel execution strategy focused on increasing the performance and quality of a single, user-selected algorithm. The solver is invoked with a specific algorithm choice (e.g., `--mode parallel --algo sa`).
 
-### Core 1: Constructive Greedy + BLF (The Baseline)
-*   **Theory:** Walls and obstacles are strictly axis-aligned. Therefore, orthogonal packing ($0^\circ, 90^\circ, 180^\circ, 270^\circ$) yields near-optimal density without the computational cost of arbitrary angles.
-*   **Mechanism:** Sort bays ascending by `(price/loads)` and descending by `area`. Place them sequentially using a Bottom-Left-Fill (slide down and left until collision).
-*   **Purpose:** Guarantees a highly competitive, valid solution within 0.5 seconds in case metaheuristics fail to converge.
+Each core runs an independent `<std::thread>` executing the **same** chosen algorithm, initialized with different random seeds (`std::random_device` + thread ID). This maximizes the exploration of the search space for that specific heuristic, yielding higher quality solutions than a single-threaded run. At $T = 29.0$ seconds, a global `std::atomic<bool> stop_flag` triggers, and the main thread harvests the lowest-$Q$ valid layout across all threads.
 
-### Core 2: Sequence-Based Genetic Algorithm (Orthogonal)
-*   **Theory:** Decouples placement logic from sequence logic.
-*   **Mechanism:** The chromosome is an array of Bay IDs. The GA applies order-crossover (OX1) and swap mutations. The fitness function passes the sequence to the BLF decoder (restricted to orthogonal angles). 
-*   **Purpose:** Explores global permutations of bay placement rapidly.
+### Supported Algorithms (User Selectable)
 
-### Core 3: Sequence-Based Genetic Algorithm (Continuous Angles)
-*   **Mechanism:** Same as Core 2, but the BLF decoder is allowed to attempt 8 fixed angles ($0^\circ, 45^\circ, 90^\circ, 135^\circ...$) and arbitrary offsets. 
-*   **Purpose:** Slower evaluation, but capable of finding non-intuitive diagonal interlocking arrangements (like the $70^\circ$ example in the prompt).
+*   **Greedy BLF (`greedy`):** Constructive Greedy + Bottom-Left-Fill. Sorts bays and places them orthogonally. Fast baseline.
+*   **GA Orthogonal (`ga_ortho`):** Sequence-based Genetic Algorithm using orthogonal angles.
+*   **GA Continuous (`ga_angle`):** Sequence-based Genetic Algorithm using arbitrary/continuous angles.
+*   **Simulated Annealing (`sa`):** Relaxes the state space to allow overlaps with heavy penalties, cooling to a valid state.
+*   **Iterated Jostle (`jostle`):** Simulates physical shaking by repacking left-to-right and right-to-left.
+*   **VNS Gap-Maximization (`vns`):** Variable Neighborhood Search focused on maximizing `Gap vs Gap` overlaps.
 
-### Core 4: Simulated Annealing (Relaxed State Space)
-*   **Theory:** Working strictly in a valid state space causes algorithms to get trapped in local minima (unable to move a bay past an obstacle). We relax the space to allow overlaps, heavily penalizing them in the objective function.
-*   **Evaluation:** $H = Q + (W_{\text{overlap}} \times \text{OverlapArea}) + (W_{\text{bounds}} \times \text{OutOfBoundsArea})$
-*   **Neighborhood Moves:**
-    *   *Macro:* Teleport bay to random $(X,Y)$.
-    *   *Medium:* Shift by Gaussian delta $(\sigma = 1000)$.
-    *   *Micro:* Shift by 1-50 units to flush against walls.
-    *   *Rotation:* $80\%$ chance to snap orthogonally, $20\%$ chance for continuous random angle.
-*   **Cooling Schedule:** Start hot (accepting heavily overlapping states to bypass obstacles), cooling exponentially so that the final 5 seconds require $H = Q$ (zero overlap penalty).
-
-### Core 5: Iterated Jostle Heuristic
-*   **Theory:** Simulates physical shaking.
-*   **Mechanism:** 
-    1. Pack pieces Left-to-Right.
-    2. Sort current layout by $X$-coordinate.
-    3. Repack Right-to-Left.
-    4. Apply a "Kick" (remove 3 random bays and re-insert them) if the score stagnates for $N$ iterations.
-*   **Purpose:** Extremely effective at naturally sliding bays past each other into highly compressed, tight clusters.
-
-### Core 6: Gap-Maximization Variable Neighborhood Search (VNS)
-*   **Theory:** Since `Gap vs Gap` overlaps are free, maximizing gap overlaps leaves more warehouse area for solid racks.
-*   **Mechanism:** Starts with the output of Core 1. Uses VNS to specifically attempt to rotate and translate bays so that they face each other (overlapping their gap polygons). Evaluates local neighborhoods iteratively ($N_1$: Rotate $180^\circ$, $N_2$: Translate across aisle, etc.).
+*Note:* For deterministic algorithms like `greedy`, running 6 identical threads provides no benefit. The parallel focus is primarily for the non-deterministic metaheuristics.
 
 ---
 

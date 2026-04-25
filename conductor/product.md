@@ -1,16 +1,20 @@
 # Product Guide
 
 ## Initial Concept
-A hackathon template project optimized for extremely fast and error-free development by AI agents like Gemini CLI. The foundation includes a React/Vite web frontend, designed to be paired with any backend technology as needed during the hackathon.
+A Mecalux Warehouse Optimizer Strategy for HackUPC 2026. The system aims to solve a 2D Continuous Unequal Area Facility Layout Problem (UA-FLP) / 2D Irregular Bin Packing (2DIBPP) challenge. It consists of a high-performance C++ algorithm core and a visually stunning React frontend to display the packing results.
 
 ## Primary Goal
-Establish a robust set of rules, architectures, and templates that empower AI agents to work effectively and quickly without making mistakes. The focus is on agility and flexibility to adapt to any hackathon challenge.
+Minimize the evaluated cost function ($Q = (\sum (price/loads))^2 - (\sum area / area_{warehouse})$) within a strict 30-second execution limit.
 
 ## Key Features
-- **Stunning Frontend Interface:** High-quality, visually appealing React interface utilizing shaders for a rich user experience.
-- **Third-Party API Integration:** Pre-configured architecture for seamless integration with external APIs (LLMs, Maps, Weather, etc.).
-- **Data Visualization Ready:** Capable of rendering interactive and visually rich dashboards or graphs.
-- **Backend Agnostic:** Frontend is decoupled, allowing the backend to be implemented in any language required by the hackathon prompt.
+- **High-Performance Algorithm Core:** Written in C++17/C++20, utilizing 6 independent CPU cores to run a user-selected optimization algorithm (Greedy BLF, GA, Simulated Annealing, VNS) in parallel with different random seeds to maximize solution quality.
+- **Frontend Mode & Case Selection:** The visualizer will allow the user to select the input case and the target algorithm to run in parallel mode.
+- **Continuous Space Collision Engine:** Uses Separating Axis Theorem (SAT) with a fast Broad Phase AABB check for nanosecond collision detection.
+- **Stunning Frontend Interface:** High-quality React/Vite web visualizer utilizing shaders for a rich user experience and 2D packing visualization.
+- **Python I/O Wrapper:** Parses CSV inputs and generates output files, bridging the C++ core and the visualization tools if needed.
 
 ## Target Audience
-Primarily businesses seeking optimized operations, but with a strong emphasis on providing a visually stunning and highly intuitive, easy-to-use interface that appeals to a wide range of users.
+Hackathon judges evaluating algorithm efficiency and performance within the 30-second limit, as well as stakeholders who require a visually appealing representation of the packed warehouse.
+
+## Development Status
+**Algorithm Core:** The collision engine (AABB + SAT) and the base `Algorithm` class have been completed. We have successfully implemented the Jostle Algorithm (`jostle`) for high-performance local search optimization. We are now continuing with other specific solver tracks, including GA and VNS variants.
