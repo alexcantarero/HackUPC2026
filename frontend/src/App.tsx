@@ -20,9 +20,10 @@ export default function App() {
   const meshRef = useRef<THREE.Mesh>(null);
   const cameraControlsRef = useRef<CameraControls>(null);
 
-  const [cameraPosition] = useState<[number, number, number]>([113, 60, 28]);
+  const [cameraPosition] = useState<[number, number, number]>([-100, 60, 28]);
   const [showGaps, setShowGaps] = useState(false);
   const [showSolverPanel, setShowSolverPanel] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
 
   const {
     setUploadFile,
@@ -63,10 +64,7 @@ export default function App() {
   const toggleCameraView = useCallback(() => {
     const camera = cameraControlsRef.current;
     if (!camera) return;
-
-    // Check current camera Y to decide toggle (Top view is at 150)
     const isCurrentlyTop = Math.abs(camera.camera.position.y - 150) < 10;
-    
     if (isCurrentlyTop) setPerspectiveView();
     else setTopView();
   }, [setPerspectiveView, setTopView]);
@@ -112,7 +110,7 @@ export default function App() {
       cameraPosition[1],
       cameraPosition[2],
       0,
-      -2, // FLOOR_Y is -2
+      -2,
       0,
       false,
     );
@@ -122,36 +120,50 @@ export default function App() {
     <div className="app-shell">
       {isSubmitting && <SolverLoader />}
       
-      <Topbar
-        onToggleCameraView={toggleCameraView}
-        onToggleGaps={toggleGaps}
-        onOpenSolverPanel={toggleSolverPanel}
-        showGaps={showGaps}
-      />
+      <div 
+        className={`intro-overlay ${!showIntro ? 'fade-out' : ''}`}
+        onClick={() => setShowIntro(false)}
+      >
+        <h1 className="intro-title">Warehouse Optimizer</h1>
+        <span className="intro-subtitle">Click to start exploring</span>
+      </div>
 
-      {showSolverPanel && (
-        <SolverPanel
-          onClose={toggleSolverPanel}
-          onSubmit={submitRequest}
-          onFileChange={setUploadFile}
-          isSubmitting={isSubmitting}
-          error={error}
+      <div className={showIntro ? 'gui-hidden' : ''}>
+        <Topbar
+          onToggleCameraView={toggleCameraView}
+          onToggleGaps={toggleGaps}
+          onOpenSolverPanel={toggleSolverPanel}
+          showGaps={showGaps}
         />
-      )}
+      </div>
 
-      <AlgorithmResults
-        results={comparisonResults}
-        selectedAlgo={selectedAlgoName}
-        onViewLayout={(algo) => {
-          if (algo.outputCsv) {
-            setActiveLayoutCsv(algo.outputCsv);
-            setSelectedAlgoName(algo.algorithm);
-          }
-        }}
-        onClear={() => setComparisonResults([])}
-      />
+      <div className={showIntro ? 'gui-hidden' : ''}>
+        {showSolverPanel && (
+          <SolverPanel
+            onClose={toggleSolverPanel}
+            onSubmit={submitRequest}
+            onFileChange={setUploadFile}
+            isSubmitting={isSubmitting}
+            error={error}
+          />
+        )}
+      </div>
 
-      <div className="canvas-container">
+      <div className={showIntro ? 'gui-hidden' : ''}>
+        <AlgorithmResults
+          results={comparisonResults}
+          selectedAlgo={selectedAlgoName}
+          onViewLayout={(algo) => {
+            if (algo.outputCsv) {
+              setActiveLayoutCsv(algo.outputCsv);
+              setSelectedAlgoName(algo.algorithm);
+            }
+          }}
+          onClear={() => setComparisonResults([])}
+        />
+      </div>
+
+      <div className={`canvas-container ${showIntro ? 'blurred' : ''}`}>
         <Canvas className="canvas" camera={{ position: cameraPosition, fov: 50 }}>
           <WarehouseScene
             sceneGeometry={buildSceneGeometry({
