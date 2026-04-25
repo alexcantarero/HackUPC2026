@@ -1,6 +1,7 @@
 #include "ga_ortho.hpp"
 #include <algorithm>
 #include <limits>
+#include <cmath>
 
 namespace {
 void expandBounds(const OBB& obb, double& min_x, double& max_x, double& min_y, double& max_y) {
@@ -20,7 +21,8 @@ Solution GAOrtho::decodeChromosome(const Chromosome& chromosome, std::atomic<boo
 Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<bool>& stop_flag) {
     Solution decoded;
     decoded.producedBy = name();
-    constexpr int kMaxAnchors = 256;
+    // Allow more dynamic anchors so it doesn't starve when navigating the L-shape
+    constexpr int kMaxAnchors = 500;
 
     if (chromosome.empty()) {
         calculateMetrics(decoded);
@@ -29,25 +31,48 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
 
     std::vector<Point2D> anchors = generateSafeAnchors(); 
     SpatialGrid decode_grid(defaultCellSize());
-    bool is_first_bay = true; // SPEEDUP FLAG
 
-    for (const auto& bay_id : chromosome) {
+    // CRITICAL FIX: We DO NOT clear the base anchors after the first bay!
+    // The base anchors guarantee we can always start new clusters in different
+    // parts of the warehouse if the L-shape choke points get blocked.
+
+    for (const SpatialGene& gene : chromosome) {
         if (stop_flag.load()) break; 
 
-        const BayType* bay_type = getBayTypeById(bay_id);
+        const BayType* bay_type = getBayTypeById(gene.bay_id);
         if (bay_type == nullptr) continue;
 
-        std::sort(anchors.begin(), anchors.end(),[](const Point2D& lhs, const Point2D& rhs) {
-            if (std::abs(lhs.y - rhs.y) > 1e-5) return lhs.y < rhs.y;
-            return lhs.x < rhs.x;
+        // SPATIAL ANCHOR SNAP: Sort by distance to the Gene's Target (X, Y)
+        std::sort(anchors.begin(), anchors.end(), [&gene](const Point2D& lhs, const Point2D& rhs) {
+            double d1 = (lhs.x - gene.target_x)*(lhs.x - gene.target_x) + (lhs.y - gene.target_y)*(lhs.y - gene.target_y);
+            double d2 = (rhs.x - gene.target_x)*(rhs.x - gene.target_x) + (rhs.y - gene.target_y)*(rhs.y - gene.target_y);
+            
+            auto quantize_dist =[](double v) { return static_cast<long long>(std::round(v)); };
+            long long q1 = quantize_dist(d1);
+            long long q2 = quantize_dist(d2);
+            if (q1 != q2) return q1 < q2;
+            
+            auto q_pos =[](double v) { return static_cast<long long>(std::round(v * 100.0)); };
+            long long q_ly = q_pos(lhs.y), q_ry = q_pos(rhs.y);
+            if (q_ly != q_ry) return q_ly < q_ry;
+            return q_pos(lhs.x) < q_pos(rhs.x);
         });
 
         bool placed = false;
-        Bay best_candidate{bay_id, 0.0, 0.0, 0.0};
+        Bay best_candidate{gene.bay_id, 0.0, 0.0, 0.0};
 
         for (const auto& anchor : anchors) {
-            for (double angle : {0.0, 90.0, 180.0, 270.0}) {
-                Bay candidate{bay_id, anchor.x, anchor.y, angle};
+            std::vector<double> angles = {0.0, 90.0, 180.0, 270.0};
+            std::sort(angles.begin(), angles.end(), [&gene](double a, double b) {
+                auto diff =[](double a1, double a2) {
+                    double d = std::fmod(std::abs(a1 - a2), 360.0);
+                    return d > 180.0 ? 360.0 - d : d;
+                };
+                return diff(a, gene.target_rot) < diff(b, gene.target_rot);
+            });
+
+            for (double angle : angles) {
+                Bay candidate{gene.bay_id, anchor.x, anchor.y, angle};
                 if (CollisionChecker::isValidPlacement(candidate, decoded.bays, &info_, &decode_grid)) {
                     best_candidate = candidate;
                     placed = true;
@@ -58,13 +83,6 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
         }
 
         if (!placed) continue;
-
-        // MASSIVE SPEEDUP: Prune the grid anchors once we're securely bootstrapped
-        if (is_first_bay) {
-            anchors.clear();
-            for (const auto& point : info_.warehousePolygon) anchors.push_back(point);
-            is_first_bay = false;
-        }
 
         decoded.bays.push_back(best_candidate);
         OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
@@ -79,7 +97,18 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
         anchors.push_back({max_x, min_y});
         anchors.push_back({min_x, max_y});
 
-        if (anchors.size() > static_cast<size_t>(kMaxAnchors)) anchors.resize(kMaxAnchors);
+        // Optional: Also add the center of the gap to encourage back-to-back placement
+        anchors.push_back(gap.center);
+
+        if (anchors.size() > static_cast<size_t>(kMaxAnchors)) {
+            // Keep the earliest anchors (the safe grid) + the newest anchors
+            size_t safe_count = info_.warehousePolygon.size() + (info_.obstacles.size() * 4) + 10;
+            if (kMaxAnchors > safe_count) {
+                anchors.erase(anchors.begin() + safe_count, anchors.begin() + safe_count + (anchors.size() - kMaxAnchors));
+            } else {
+                anchors.resize(kMaxAnchors);
+            }
+        }
     }
 
     calculateMetrics(decoded);
