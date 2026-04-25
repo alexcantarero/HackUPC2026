@@ -4,8 +4,32 @@ import { CameraControls } from "@react-three/drei";
 import { useRef, useEffect, useMemo } from "react";
 import * as THREE from "three";
 import Shelf from "./models/shelf.jsx";
-import warehouseOutlineCsv from "../../data/input/Case3/warehouse.csv?raw";
-import ceilingCsv from "../../data/input/Case3/ceiling.csv?raw";
+
+const CASE_NUMBER = 0;
+const warehouseFiles = import.meta.glob(
+  "../../data/input/Case*/warehouse.csv",
+  { query: "?raw", import: "default", eager: true },
+);
+const ceilingFiles = import.meta.glob("../../data/input/Case*/ceiling.csv", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+const obstacleFiles = import.meta.glob("../../data/input/Case*/obstacles.csv", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+const warehouseOutlineCsv = warehouseFiles[
+  `../../data/input/Case${CASE_NUMBER}/warehouse.csv`
+] as string;
+const ceilingCsv = ceilingFiles[
+  `../../data/input/Case${CASE_NUMBER}/ceiling.csv`
+] as string;
+const obstaclesCsv = obstacleFiles[
+  `../../data/input/Case${CASE_NUMBER}/obstacles.csv`
+] as string;
 
 const WORLD_SCALE = 0.004;
 const FLOOR_THICKNESS = 0.25;
@@ -83,7 +107,6 @@ function buildWallGeometry(
 ): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
 
-  // Notice the negated start.y and end.y to correctly map to the 3D Z-axis
   const vertices = new Float32Array([
     start.x,
     bottomY,
@@ -154,7 +177,6 @@ export default function App() {
       (a, b) => a[0] - b[0],
     );
 
-    // Fallback to a rectangle if input is not enough to build a polygon.
     const points =
       rawPoints.length >= 3
         ? rawPoints
@@ -214,7 +236,6 @@ export default function App() {
     for (let i = 0; i < ceilingProfile.length; i += 1) {
       let [startRawX, rawHeight] = ceilingProfile[i];
 
-      // Extend the first ceiling section to the very edge of the building
       if (i === 0 && minRawX < startRawX) {
         startRawX = minRawX;
       }
@@ -233,7 +254,6 @@ export default function App() {
         new THREE.Shape(clippedPolygon),
       );
 
-      // Rotate it down so it lays flat as a roof!
       ceilingPartGeometry.rotateX(-Math.PI / 2);
       ceilingPartGeometry.translate(0, -CEILING_THICKNESS / 2, 0);
 
@@ -242,16 +262,13 @@ export default function App() {
         const currentHeightY = rawHeight * WORLD_SCALE - CEILING_THICKNESS / 2;
         const nextHeightY = nextRawHeight * WORLD_SCALE - CEILING_THICKNESS / 2;
 
-        // Only build a connecting wall if there is a height difference
         if (Math.abs(currentHeightY - nextHeightY) > 1e-5) {
           for (let j = 0; j < clippedPolygon.length; j += 1) {
             const start = clippedPolygon[j];
             const end = clippedPolygon[(j + 1) % clippedPolygon.length];
 
-            // Skip zero-length segments
             if (start.distanceToSquared(end) < 1e-10) continue;
 
-            // Check if this edge lies exactly on the boundary 'cut' line between the two sections
             if (
               Math.abs(start.x - endX) < 1e-5 &&
               Math.abs(end.x - endX) < 1e-5
@@ -259,7 +276,7 @@ export default function App() {
               const bottomY = Math.min(currentHeightY, nextHeightY);
               const topY = Math.max(currentHeightY, nextHeightY);
 
-              // SWAP `start` and `end` here to flip the face normal!
+              // Flipped start and end to correct the normal for BackSide culling
               walls.push(buildWallGeometry(end, start, bottomY, topY));
             }
           }
@@ -301,10 +318,57 @@ export default function App() {
       walls.push(buildWallGeometry(start, end, floorTopY, topY));
     }
 
+    const getCeilingTopY = (targetXRaw: number) => {
+      let h = ceilingProfile[0][1];
+      for (const [cx, ch] of ceilingProfile) {
+        if (targetXRaw >= cx) h = ch;
+      }
+      return h * WORLD_SCALE - CEILING_THICKNESS / 2;
+    };
+
+    // Swap obstaclesRawInput with obstaclesCsv here:
+    const parsedObstacles = obstaclesCsv
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const [x, y, w, d] = l.split(",").map((v) => Number(v.trim()));
+        return { x, y, w, d };
+      });
+
+    const obstacles: Array<{
+      geometry: THREE.BoxGeometry;
+      position: [number, number, number];
+    }> = [];
+
+    for (const { x, y, w, d } of parsedObstacles) {
+      // Find the center of the box to accurately check ceiling height
+      const centerXRaw = x + w / 2;
+      const centerYRaw = y + d / 2;
+
+      const topY = getCeilingTopY(centerXRaw);
+      const bottomY = FLOOR_THICKNESS / 2;
+      const height3D = topY - bottomY;
+
+      const width3D = w * WORLD_SCALE;
+      const depth3D = d * WORLD_SCALE;
+
+      const geom = new THREE.BoxGeometry(width3D, height3D, depth3D);
+
+      // Map 2D center coordinates to 3D space
+      const cx = centerXRaw * WORLD_SCALE - centerX;
+      const cz = -(centerYRaw * WORLD_SCALE - centerY);
+      const cy = bottomY + height3D / 2;
+
+      obstacles.push({ geometry: geom, position: [cx, cy, cz] });
+    }
+    // ----------------------------------------
+
     return {
       floor: geometry,
       ceilingParts,
       walls,
+      obstacles, // Export obstacles
     };
   }, []);
 
@@ -316,6 +380,9 @@ export default function App() {
       }
       for (const wall of sceneGeometry.walls) {
         wall.dispose();
+      }
+      for (const obs of sceneGeometry.obstacles) {
+        obs.geometry.dispose();
       }
     };
   }, [sceneGeometry]);
@@ -348,7 +415,6 @@ export default function App() {
             position={[0, FLOOR_Y + part.y, 0]}
             geometry={part.geometry}
           >
-            {/* Renders the ceiling from below, but hides it from above! */}
             <meshStandardMaterial color="#d6d6d6" side={THREE.BackSide} />
           </mesh>
         ))}
@@ -359,8 +425,23 @@ export default function App() {
             position={[0, FLOOR_Y, 0]}
             geometry={wall}
           >
-            {/* Same effect for the walls */}
             <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+          </mesh>
+        ))}
+
+        {/* --- Render the new obstacles --- */}
+        {sceneGeometry.obstacles.map((obs, index) => (
+          <mesh
+            key={`obstacle-${index}`}
+            position={[
+              obs.position[0],
+              FLOOR_Y + obs.position[1],
+              obs.position[2],
+            ]}
+            geometry={obs.geometry}
+          >
+            {/* FrontSide ensures no backface culling, leaving them entirely solid */}
+            <meshStandardMaterial color="#a8a8a8" side={THREE.FrontSide} />
           </mesh>
         ))}
 
