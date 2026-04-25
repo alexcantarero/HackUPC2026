@@ -16,18 +16,18 @@ export default function Model(props) {
   return (
     <group {...props} dispose={null}>
       <group rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh
+        {/* <mesh
           castShadow
           receiveShadow
           geometry={nodes.Material2.geometry}
           material={materials.cardboard}
-        />
-        <mesh
+        /> */}
+        {/* <mesh
           castShadow
           receiveShadow
           geometry={nodes.Material2_1.geometry}
           material={materials.tape}
-        />
+        /> */}
         <mesh
           castShadow
           receiveShadow
