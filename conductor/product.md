@@ -15,3 +15,6 @@ Minimize the evaluated cost function ($Q = (\sum (price/loads))^2 - (\sum area /
 
 ## Target Audience
 Hackathon judges evaluating algorithm efficiency and performance within the 30-second limit, as well as stakeholders who require a visually appealing representation of the packed warehouse.
+
+## Development Status
+**Algorithm Core:** The collision engine (AABB + SAT) has been completed, and a teammate has implemented the base/parent `Algorithm` class along with initial tests. We are now ready to implement specific solver tracks, starting with the Orthogonal Genetic Algorithm (`ga_ortho`).

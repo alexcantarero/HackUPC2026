@@ -9,5 +9,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [ ] **Track: check already implemented code in back_end folder, see if it complies with the specs, update status in GEMINI.md and conductor files and create a track for each solution to implement.**
-  *Link: [./tracks/refactor_collision_20260424/](./tracks/refactor_collision_20260424/)*
+- [ ] **Track: Implement Orthogonal Genetic Algorithm (GA Ortho)**
+  *Link: [./tracks/ga_ortho_20260425/](./tracks/ga_ortho_20260425/)*
