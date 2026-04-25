@@ -61,12 +61,11 @@ export default function App() {
   }, [cameraPosition]);
 
   const toggleCameraView = useCallback(() => {
-    // Simple toggle logic without persisting state if not used for rendering
     const camera = cameraControlsRef.current;
     if (!camera) return;
 
-    // Check if we are roughly in top view
-    const isCurrentlyTop = Math.abs(camera.camera.position.y - 248) < 1;
+    // Check current camera Y to decide toggle (Top view is at 150)
+    const isCurrentlyTop = Math.abs(camera.camera.position.y - 150) < 10;
     
     if (isCurrentlyTop) setPerspectiveView();
     else setTopView();
