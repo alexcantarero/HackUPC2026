@@ -143,11 +143,18 @@ export default function App() {
     if (!warehouseRef.current) return;
     try {
       const exporter = new USDZExporter();
+      
+      // Clone the warehouse to scale it for table-top AR without affecting the web view.
+      // The scene is ~40 units (meters) wide. Scale by 0.025 to make it ~1 meter wide.
+      const arGroup = warehouseRef.current.clone(true);
+      arGroup.scale.set(0.025, 0.025, 0.025);
+      arGroup.updateMatrixWorld(true);
+
       // Handle older Three.js USDZExporter callback signature
       const arrayBuffer = await new Promise<any>((resolve, reject) => {
         try {
           // @ts-ignore
-          const result = exporter.parse(warehouseRef.current, (res) => resolve(res), reject);
+          const result = exporter.parse(arGroup, (res) => resolve(res), reject);
           if ((result as any) && (result as any) instanceof Promise) {
             (result as any).then(resolve).catch(reject);
           }
@@ -372,15 +379,28 @@ export default function App() {
             <Canvas
               className="canvas"
               camera={{ position: cameraPosition, fov: 50 }}
+              shadows
             >
               <XR store={store}>
                 <Suspense fallback={null}>
                   <color attach="background" args={["#878787"]} />
-                  <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
+                  <directionalLight 
+                    ref={lightRef} 
+                    position={[10, 50, 10]} 
+                    intensity={5} 
+                    castShadow
+                    shadow-mapSize={[2048, 2048]}
+                    shadow-camera-near={0.5}
+                    shadow-camera-far={500}
+                    shadow-camera-left={-50}
+                    shadow-camera-right={50}
+                    shadow-camera-top={50}
+                    shadow-camera-bottom={-50}
+                  />
                   <ambientLight intensity={3} />
 
                   <group name="warehouseGroup" ref={warehouseRef}>
-                    <mesh position={[0, FLOOR_Y, 0]} ref={meshRef} geometry={sceneGeometry.floor}>
+                    <mesh position={[0, FLOOR_Y, 0]} ref={meshRef} geometry={sceneGeometry.floor} receiveShadow>
                       <meshStandardMaterial color="#a3a3a3" />
                     </mesh>
 
@@ -403,8 +423,8 @@ export default function App() {
                     ))}
 
                     {sceneGeometry.walls.map((wall, index) => (
-                      <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall}>
-                        <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+                      <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall} castShadow receiveShadow>
+                        <meshStandardMaterial color="#c4c4c4" side={THREE.DoubleSide} />
                       </mesh>
                     ))}
 
@@ -417,8 +437,10 @@ export default function App() {
                           obstacle.position[2],
                         ]}
                         geometry={obstacle.geometry}
+                        castShadow
+                        receiveShadow
                       >
-                        <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
+                        <meshStandardMaterial color="#ec8200" side={THREE.DoubleSide} />
                       </mesh>
                     ))}
 
