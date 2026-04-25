@@ -20,7 +20,7 @@ export default function App() {
   const meshRef = useRef<THREE.Mesh>(null);
   const cameraControlsRef = useRef<CameraControls>(null);
 
-  const [cameraPosition] = useState<[number, number, number]>([60, 60, 100]);
+  const [cameraPosition] = useState<[number, number, number]>([113, 60, 28]);
   const [showGaps, setShowGaps] = useState(false);
   const [showSolverPanel, setShowSolverPanel] = useState(false);
 
