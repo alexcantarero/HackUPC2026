@@ -53,6 +53,7 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
 {
     // Uncomment each line as the solver is implemented:
     if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
+    if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
     if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
