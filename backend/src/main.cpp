@@ -3,6 +3,9 @@
 #include "solvers/algorithm.hpp"
 #include "solvers/ga_angle.hpp"
 #include "solvers/ga_ortho.hpp"
+#include "solvers/jostle_algorithm.hpp"
+#include "solvers/sa.hpp"
+#include "solvers/greedy.hpp"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -11,12 +14,6 @@
 #include <atomic>
 #include <string>
 #include <random>
-
-// ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
-#include "solvers/greedy.hpp"
-// #include "solvers/sa.hpp"
-#include "solvers/jostle_algorithm.hpp"
-// #include "solvers/vns.hpp"
 
 static constexpr int    NUM_THREADS   = 6;
 static constexpr double TIME_LIMIT_S  = 29.0;
@@ -49,13 +46,11 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
     const StaticState& info,
     uint64_t seed)
 {
-    // Uncomment each line as the solver is implemented:
     if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
-    // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
+    if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
     if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, -1);
-    // if (algoName == "vns")      return std::make_unique<Vns>(info, seed);
 
     std::cerr << "[warn] Unknown algorithm '" << algoName << "'. No solver created.\n";
     return nullptr;
@@ -93,7 +88,7 @@ int main(int argc, char* argv[]) {
         // Portfolio: one thread per algorithm
         std::cout << "Mode: portfolio\n";
         const std::vector<std::string> portfolio = {
-            "greedy", "ga_ortho", "ga_angle", "sa", "jostle", "vns"
+            "greedy", "ga_ortho", "ga_angle", "sa", "jostle"
         };
         for (int i = 0; i < (int)portfolio.size(); ++i) {
             uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
@@ -103,7 +98,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (algos.empty()) {
-        std::cerr << "No algorithms available. Implement solvers and uncomment them in makeAlgorithm().\n";
+        std::cerr << "No algorithms available.\n";
         return 1;
     }
 
