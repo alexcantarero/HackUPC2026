@@ -15,9 +15,9 @@
 - [x] Task: Conductor - User Manual Verification 'Local Search Operators' (Protocol in workflow.md)
 
 ## Phase 3: Algorithm Logic and Optimization Loop
-- [ ] Task: Implement the objective function evaluation for the `State`.
-- [ ] Task: Implement the main local search loop inside `solve()`, running up to `maxIterations`.
-- [ ] Task: Implement the neighborhood exploration logic (e.g., hill climbing or simulated annealing style acceptance of worse states) using the operators.
-- [ ] Task: Ensure thread safety if parallel random seeds are used (from `std::mt19937`).
-- [ ] Task: Ensure algorithm terminates properly when the time limit (30s) or `maxIterations` is reached.
+- [x] Task: Implement the objective function evaluation for the `State`. 1d669bc
+- [x] Task: Implement the main local search loop inside `solve()`, running up to `maxIterations`. 1d669bc
+- [x] Task: Implement the neighborhood exploration logic (e.g., hill climbing or simulated annealing style acceptance of worse states) using the operators. 1d669bc
+- [x] Task: Ensure thread safety if parallel random seeds are used (from `std::mt19937`). 1d669bc
+- [x] Task: Ensure algorithm terminates properly when the time limit (30s) or `maxIterations` is reached. 1d669bc
 - [ ] Task: Conductor - User Manual Verification 'Algorithm Logic and Optimization Loop' (Protocol in workflow.md)
