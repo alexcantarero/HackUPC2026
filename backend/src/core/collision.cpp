@@ -13,6 +13,28 @@ static double degToRad(double degrees) {
     return degrees * M_PI / 180.0;
 }
 
+static bool pointOnSegment(const Point2D& p, const Point2D& a, const Point2D& b) {
+    constexpr double kEps = 1e-5;
+
+    const double cross = (p.y - a.y) * (b.x - a.x) - (p.x - a.x) * (b.y - a.y);
+    if (std::abs(cross) > kEps) {
+        return false;
+    }
+
+    const double dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y);
+    if (dot < -kEps) {
+        return false;
+    }
+
+    const double squared_length = (b.x - a.x) * (b.x - a.x) +
+                                  (b.y - a.y) * (b.y - a.y);
+    if (dot - squared_length > kEps) {
+        return false;
+    }
+
+    return true;
+}
+
 const BayType* CollisionChecker::getBayType(int typeId, const StaticState* staticInfo) {
     for (const auto& bt : staticInfo->bayTypes) {
         if (bt.id == typeId) return &bt;
@@ -201,6 +223,13 @@ bool CollisionChecker::checkOBBvsOBB(const OBB& a, const OBB& b) {
 
 
 bool CollisionChecker::isPointInsidePolygon(const Point2D& p, const std::vector<Point2D>& polygon) {
+    for (size_t i = 0; i < polygon.size(); ++i) {
+        const size_t j = (i + 1) % polygon.size();
+        if (pointOnSegment(p, polygon[i], polygon[j])) {
+            return true;
+        }
+    }
+
     bool inside = false;
     for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
         if (((polygon[i].y > p.y) != (polygon[j].y > p.y)) &&
@@ -225,20 +254,6 @@ bool CollisionChecker::isOBBInsidePolygon(const OBB& obb, const std::vector<Poin
     for (int i = 0; i < 4; ++i) {
         if (!isPointInsidePolygon(obb.corners[i], polygon)) {
             return false;
-        }
-    }
-
-    for (int i = 0; i < 4; ++i) {
-        Point2D obbP1 = obb.corners[i];
-        Point2D obbP2 = obb.corners[(i + 1) % 4];
-
-        for (size_t j = 0; j < polygon.size(); ++j) {
-            Point2D polyP1 = polygon[j];
-            Point2D polyP2 = polygon[(j + 1) % polygon.size()];
-
-            if (segmentsIntersect(obbP1, obbP2, polyP1, polyP2)) {
-                return false;
-            }
         }
     }
     return true;
