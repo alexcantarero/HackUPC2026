@@ -260,11 +260,26 @@ bool CollisionChecker::segmentsIntersect(const Point2D& p1, const Point2D& p2, c
 bool CollisionChecker::isOBBInsidePolygon(const OBB& obb, const std::vector<Point2D>& polygon) {
     if (polygon.size() < 3) return false;
 
+    // All 4 corners must be inside the polygon
     for (int i = 0; i < 4; ++i) {
         if (!isPointInsidePolygon(obb.corners[i], polygon)) {
             return false;
         }
     }
+
+    // For concave polygons, corners-inside is necessary but not sufficient.
+    // A rectangle can have all corners inside a plus/cross shape while its edges
+    // cross the concave boundary. Check no OBB edge crosses any polygon edge.
+    const int n = static_cast<int>(polygon.size());
+    for (int i = 0; i < 4; ++i) {
+        const Point2D& a = obb.corners[i];
+        const Point2D& b = obb.corners[(i + 1) % 4];
+        for (int j = 0; j < n; ++j) {
+            if (segmentsIntersect(a, b, polygon[j], polygon[(j + 1) % n]))
+                return false;
+        }
+    }
+
     return true;
 }
 
