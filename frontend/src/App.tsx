@@ -1,7 +1,7 @@
 import "./App.css";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import Shelf from "./models/shelf.jsx";
 import FadingDollhouseElement from "./components/FadingDollhouseElement";
@@ -33,6 +33,42 @@ function getCaseCsv(files: Record<string, string>, kind: string) {
 export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
+  const cameraControlsRef = useRef<CameraControls>(null);
+  const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
+  const [, setIsTopView] = useState(false);
+
+  const setTopView = useCallback(() => {
+    cameraControlsRef.current?.setLookAt(
+      0,
+      FLOOR_Y + 250,
+      0,
+      0,
+      FLOOR_Y,
+      0,
+      true,
+    );
+  }, []);
+
+  const setPerspectiveView = useCallback(() => {
+    cameraControlsRef.current?.setLookAt(
+      cameraPosition[0],
+      cameraPosition[1],
+      cameraPosition[2],
+      0,
+      FLOOR_Y,
+      0,
+      true,
+    );
+  }, [cameraPosition]);
+
+  const toggleCameraView = useCallback(() => {
+    setIsTopView((prevIsTopView) => {
+      const nextIsTopView = !prevIsTopView;
+      if (nextIsTopView) setTopView();
+      else setPerspectiveView();
+      return nextIsTopView;
+    });
+  }, [setPerspectiveView, setTopView]);
 
   const sceneGeometry = useMemo(
     () =>
@@ -62,13 +98,28 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    cameraControlsRef.current?.setLookAt(
+      cameraPosition[0],
+      cameraPosition[1],
+      cameraPosition[2],
+      0,
+      FLOOR_Y,
+      0,
+      false,
+    );
+  }, [cameraPosition]);
+
   return (
     <div className="app-shell">
-      <Topbar />
+      <Topbar onToggleCameraView={toggleCameraView} />
       <div className="canvas-container">
         <Canvas
           className="canvas"
-          camera={{ position: [0, 5, 100], rotation: [0, 45, 0], fov: 50 }}
+          camera={{
+            position: cameraPosition,
+            fov: 50,
+          }}
         >
           <color attach="background" args={["#878787"]} />
           <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
@@ -125,7 +176,7 @@ export default function App() {
           ))}
 
           <Shelf position={[0, FLOOR_Y, 0]} scale={0.05} />
-          <CameraControls makeDefault />
+          <CameraControls ref={cameraControlsRef} makeDefault />
         </Canvas>
       </div>
     </div>
