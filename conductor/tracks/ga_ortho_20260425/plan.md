@@ -1,7 +1,7 @@
 # Implementation Plan: Implement Orthogonal Genetic Algorithm (GA Ortho)
 
 ## Phase 1: Genetic Sequence Operators
-- [ ] Task: Implement Chromosome and Crossover
+- [x] Task: Implement Chromosome and Crossover [708f482]
     - [ ] Sub-task: Create GA Ortho class inheriting from base `Algorithm`
     - [ ] Sub-task: Implement Order Crossover (OX1) logic
 - [ ] Task: Implement Mutation Logic
