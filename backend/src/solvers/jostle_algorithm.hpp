@@ -22,10 +22,6 @@ public:
     bool isValidState(const std::vector<Bay>& state);
     bool isBayValidInState(const std::vector<Bay>& state, int bayIndex);
 
-    // Objective function
-    double evaluateQ(const std::vector<Bay>& state) const;
-
 private:
     int maxIterations_;
-    static double polygonArea(const std::vector<Point2D>& polygon);
 };

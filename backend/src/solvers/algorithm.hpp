@@ -35,6 +35,13 @@ protected:
     Solution           best_;  
     std::chrono::steady_clock::time_point startTime_; 
 
+    /** Returns the largest bay footprint dimension to use as grid cell size. */
+    static double largestBayDim(const StaticState& info) {
+        double d = 1.0;
+        for (const auto& bt : info.bayTypes) d = std::max(d, std::max(bt.width, bt.depth));
+        return d;
+    }
+
     // ALL solvers now use this exact same scoring method!
     double calculateScore(const std::vector<Bay>& bays) const {
         return computeScore(bays, info_, warehouse_area_);
@@ -58,12 +65,5 @@ protected:
         candidate.producedBy = name();
         candidate.timeTaken = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime_).count();
         if (candidate.score < best_.score) best_ = std::move(candidate);
-    }
-
-private:
-    static double largestBayDim(const StaticState& info) {
-        double d = 1.0;
-        for (const auto& bt : info.bayTypes) d = std::max(d, std::max(bt.width, bt.depth));
-        return d;
     }
 };
