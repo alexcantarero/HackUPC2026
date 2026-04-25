@@ -2,11 +2,12 @@ import * as THREE from "three";
 import ProceduralShelf from "./ProceduralShelf";
 import GapBox from "./GapBox";
 import { WORLD_SCALE, FLOOR_Y } from "../../scene/buildSceneGeometry";
+import type { WarehouseLayoutItem, BayType, WarehouseCenter } from "../../types/warehouse";
 
 interface WarehouseProps {
-  layoutData: Array<{ id: number; x: number; y: number; rot: number }>;
-  bayData: Record<number, { width: number; depth: number; height: number; gap: number }>;
-  warehouseCenter: { centerX: number; centerY: number };
+  layoutData: WarehouseLayoutItem[];
+  bayData: Record<number, BayType>;
+  warehouseCenter: WarehouseCenter;
   showGaps: boolean;
 }
 
