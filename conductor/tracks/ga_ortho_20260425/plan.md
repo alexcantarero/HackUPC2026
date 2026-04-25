@@ -4,7 +4,7 @@
 - [x] Task: Implement Chromosome and Crossover [708f482]
     - [ ] Sub-task: Create GA Ortho class inheriting from base `Algorithm`
     - [ ] Sub-task: Implement Order Crossover (OX1) logic
-- [ ] Task: Implement Mutation Logic
+- [x] Task: Implement Mutation Logic [6d45fc6]
     - [ ] Sub-task: Implement swap mutation
     - [ ] Sub-task: Add unit tests for genetic operators
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Genetic Sequence Operators' (Protocol in workflow.md)
