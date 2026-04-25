@@ -54,8 +54,6 @@ void JostleAlgorithm::greedyPlacement(std::vector<Bay>& state) {
         return (a.width * a.depth * a.nLoads) > (b.width * b.depth * b.nLoads);
     });
 
-    // Proportional step sizes to guarantee exactly 10,000 grid evaluations (lightning fast)
-    // regardless of whether coordinates are in meters or millimeters.
     double stepX = (maxX - minX) / 100.0;
     double stepY = (maxY - minY) / 100.0;
     if (stepX <= 0.1) stepX = 1.0;
@@ -64,6 +62,7 @@ void JostleAlgorithm::greedyPlacement(std::vector<Bay>& state) {
     for (double y = minY; y <= maxY; y += stepY) {
         for (double x = minX; x <= maxX; x += stepX) {
             for (const auto& bt : sortedTypes) {
+                // Initial greedy still uses orthogonal for speed and better coverage
                 for (double rot : {0.0, 90.0, 180.0, 270.0}) {
                     Bay b = {bt.id, x, y, rot};
                     if (CollisionChecker::isValidPlacement(b, state, &info_, nullptr)) {
@@ -86,9 +85,11 @@ bool JostleAlgorithm::translateBay(std::vector<Bay>& state, int bayIndex, double
     return false;
 }
 
-bool JostleAlgorithm::rotateBay(std::vector<Bay>& state, int bayIndex, double /*deltaAngle*/) {
+bool JostleAlgorithm::rotateBay(std::vector<Bay>& state, int bayIndex, double deltaAngle) {
     double oldRot = state[bayIndex].rotation;
-    state[bayIndex].rotation = std::fmod(oldRot + 90.0, 360.0);
+    state[bayIndex].rotation = std::fmod(oldRot + deltaAngle, 360.0);
+    if (state[bayIndex].rotation < 0) state[bayIndex].rotation += 360.0;
+
     if (isBayValidInState(state, bayIndex)) return true;
     state[bayIndex].rotation = oldRot;
     return false;
@@ -123,16 +124,11 @@ bool JostleAlgorithm::addRandomBay(std::vector<Bay>& state) {
     std::uniform_int_distribution<int> type_dist(0, (int)info_.bayTypes.size() - 1);
     std::uniform_real_distribution<double> x_dist(minX, maxX);
     std::uniform_real_distribution<double> y_dist(minY, maxY);
-    
-    const double angles[] = {0.0, 90.0, 180.0, 270.0};
-    std::uniform_int_distribution<int> angle_dist(0, 3);
+    std::uniform_real_distribution<double> rot_dist(0.0, 360.0); // Arbitrary rotation
     std::uniform_real_distribution<double> prob(0.0, 1.0);
 
-    // 30 attempts per SA tick to successfully spawn a bay
     for (int attempt = 0; attempt < 30; ++attempt) {
         double rx, ry;
-        
-        // 80% chance to organically cluster around existing bays
         if (!state.empty() && prob(rng_) < 0.80) {
             std::uniform_int_distribution<int> bay_dist(0, (int)state.size() - 1);
             int ref = bay_dist(rng_);
@@ -145,7 +141,7 @@ bool JostleAlgorithm::addRandomBay(std::vector<Bay>& state) {
             ry = y_dist(rng_);
         }
 
-        Bay newBay = {info_.bayTypes[type_dist(rng_)].id, rx, ry, angles[angle_dist(rng_)]};
+        Bay newBay = {info_.bayTypes[type_dist(rng_)].id, rx, ry, rot_dist(rng_)};
         
         if (CollisionChecker::isValidPlacement(newBay, state, &info_, nullptr)) {
             state.push_back(newBay);
@@ -170,7 +166,6 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
     
     bool is_minimization = true; 
     
-    // Explicitly update best with the greedy seed
     if (!current_state.empty()) {
         Solution seed;
         seed.bays = current_state;
@@ -179,9 +174,9 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
     }
 
     std::uniform_real_distribution<double> move_dist(-20.0, 20.0); 
+    std::uniform_real_distribution<double> rot_delta_dist(-15.0, 15.0); // Small jiggles
     std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
     
-    // Aggressively prioritize adding bays (weight 50) over removing (weight 5)
     std::discrete_distribution<int> op_dist({50, 5, 20, 15, 5, 5}); 
 
     int iterations = 0;
@@ -216,7 +211,7 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
             if (op == 2) {
                 success = translateBay(current_state, mod_idx1, move_dist(rng_), move_dist(rng_));
             } else if (op == 3) {
-                success = rotateBay(current_state, mod_idx1, 90.0);
+                success = rotateBay(current_state, mod_idx1, rot_delta_dist(rng_));
             } else if (op == 4) {
                 mod_idx2 = (mod_idx1 + 1) % (int)current_state.size();
                 backup_bay2 = current_state[mod_idx2];
@@ -229,8 +224,6 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
 
         if (success) {
             double next_score = calculateScore(current_state);
-            
-            // Standardize the delta check so SA logic works perfectly either way
             double delta;
             if (is_minimization) {
                 delta = next_score - current_score;
@@ -238,10 +231,8 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
                 delta = current_score - next_score;
             }
             
-            if (delta <= 0 || prob_dist(rng_) < std::exp(-delta / temp)) {
+            if (delta <= 0 || (temp > 1e-9 && prob_dist(rng_) < std::exp(-delta / temp))) {
                 current_score = next_score;
-                
-                // If it's a strict improvement over the current step, blast it to the base class
                 if (delta <= 0) {
                     updateBest({current_state, current_score, name(), 0.0});
                 }
