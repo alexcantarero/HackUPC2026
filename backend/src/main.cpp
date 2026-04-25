@@ -27,6 +27,7 @@
 // #include "solvers/vns.hpp"
 
 static constexpr int    NUM_THREADS   = 6;
+static constexpr int    NUM_SAME_ALGOS = 3;
 std::atomic<bool> early_exit_signal{false};
 
 // Change the global time limit to be dynamic
@@ -139,7 +140,7 @@ int main(int argc, char* argv[]) {
         const std::vector<std::string> portfolio = {"greedy", "ga_ortho", "ga_angle", "jostle", "sa"};
         for (int i = 0; i < (int)portfolio.size(); ++i) {
             const std::string& algoName = portfolio[i];
-            int count = (algoName == "greedy") ? 1 : 3;
+            int count = (algoName == "greedy") ? 1 : NUM_SAME_ALGOS;
             for (int j = 0; j < count; ++j) {
                 uint64_t seed = rd() ^ (static_cast<uint64_t>(i * 10 + j) << 32);
                 auto algo = makeAlgorithm(algoName, staticData, seed, cfg);
