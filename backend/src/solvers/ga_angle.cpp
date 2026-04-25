@@ -31,24 +31,26 @@ Solution GAAngle::decodeChromosome(const Chromosome& chromosome) {
 Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome) {
     Solution decoded;
     decoded.producedBy = name();
-    constexpr int kQuasiAnglesPerAnchor = 12;
+    constexpr int kQuasiAnglesPerAnchor = 2;
     constexpr int kMaxAnchors = 256;
     constexpr double kGoldenAngle = 137.50776405003785;
 
     if (chromosome.empty()) {
-        decoded.score = evaluateQ(decoded);
+        decoded.score = calculateScore(decoded.bays); // Updated to use parent method
         return decoded;
     }
 
-    double min_x = std::numeric_limits<double>::max();
-    double min_y = std::numeric_limits<double>::max();
-    for (const auto& point : info_.warehousePolygon) {
-        min_x = std::min(min_x, point.x);
-        min_y = std::min(min_y, point.y);
-    }
-
+    // Seed anchors properly using all warehouse and obstacle corners
     std::vector<Point2D> anchors;
-    anchors.push_back({min_x, min_y});
+    for (const auto& point : info_.warehousePolygon) {
+        anchors.push_back(point);
+    }
+    for (const auto& obs : info_.obstacles) {
+        anchors.push_back({obs.x, obs.y});
+        anchors.push_back({obs.x + obs.width, obs.y});
+        anchors.push_back({obs.x, obs.y + obs.depth});
+        anchors.push_back({obs.x + obs.width, obs.y + obs.depth});
+    }
 
     SpatialGrid decode_grid(defaultCellSize());
 
@@ -166,6 +168,6 @@ Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome) {
         }
     }
 
-    decoded.score = evaluateQ(decoded);
+    decoded.score = calculateScore(decoded.bays);
     return decoded;
 }

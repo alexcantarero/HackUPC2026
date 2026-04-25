@@ -33,16 +33,15 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
     constexpr int kMaxAnchors = 256;
 
     if (chromosome.empty()) {
-        decoded.score = evaluateQ(decoded);
+        decoded.score = calculateScore(decoded.bays); // Updated to use parent method
         return decoded;
     }
 
+    // Seed anchors properly using all warehouse and obstacle corners
     std::vector<Point2D> anchors;
-    // Seed with all warehouse corners (guaranteed to be inside/on the boundary)
     for (const auto& point : info_.warehousePolygon) {
         anchors.push_back(point);
     }
-    // Seed with all obstacle corners
     for (const auto& obs : info_.obstacles) {
         anchors.push_back({obs.x, obs.y});
         anchors.push_back({obs.x + obs.width, obs.y});
@@ -117,6 +116,6 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
         }
     }
 
-    decoded.score = evaluateQ(decoded);
+    decoded.score = calculateScore(decoded.bays); // Updated to use parent method
     return decoded;
 }
