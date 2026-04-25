@@ -53,4 +53,5 @@ struct Solution {
     std::vector<Bay> bays;
     double      score      = std::numeric_limits<double>::max(); ///< Q value; lower is better
     std::string producedBy = "";                                 ///< algorithm name, for logging
+    double      timeTaken  = 0.0;                                ///< time (seconds) since algorithm start
 };

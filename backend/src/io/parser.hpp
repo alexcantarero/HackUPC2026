@@ -13,4 +13,12 @@ namespace io {
  */
 bool parseStaticState(const std::string& directoryPath, StaticState& out);
 
+/**
+ * @brief Writes the solution out to a CSV file.
+ * @param filePath Output path for the CSV.
+ * @param solution The solution to write.
+ * @return true on success, false if the file could not be written.
+ */
+bool writeSolution(const std::string& filePath, const Solution& solution);
+
 } // namespace io

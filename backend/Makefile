@@ -5,7 +5,9 @@ SRCDIR   = src
 
 SRCS = $(SRCDIR)/main.cpp \
        $(SRCDIR)/core/collision.cpp \
-       $(SRCDIR)/io/parser.cpp
+       $(SRCDIR)/core/score.cpp \
+       $(SRCDIR)/io/parser.cpp \
+       $(SRCDIR)/solvers/greedy.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 
@@ -21,16 +23,33 @@ $(TARGET): $(OBJS)
 run: $(TARGET)
 	./$(TARGET) --case ../data/input/Case0
 
-TEST_SRCS = tests/test_collision.cpp \
-            $(SRCDIR)/core/collision.cpp \
-            $(SRCDIR)/io/parser.cpp
+# ── Tests ──────────────────────────────────────────────────────────────────
 
-test: $(TEST_SRCS)
+test_collision: tests/test_collision.cpp \
+                $(SRCDIR)/core/collision.cpp \
+                $(SRCDIR)/io/parser.cpp
 	mkdir -p bin
-	$(CXX) $(CXXFLAGS) -o bin/test_collision $(TEST_SRCS)
+	$(CXX) $(CXXFLAGS) -o bin/test_collision $^
 	./bin/test_collision
 
-clean:
-	rm -f $(OBJS) bin/solver bin/test_collision
+test_score: tests/test_score.cpp \
+            $(SRCDIR)/core/score.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_score $^
+	./bin/test_score
 
-.PHONY: all run test clean
+test_greedy: tests/test_greedy.cpp \
+             $(SRCDIR)/core/collision.cpp \
+             $(SRCDIR)/core/score.cpp \
+             $(SRCDIR)/solvers/greedy.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_greedy $^
+	./bin/test_greedy
+
+test: test_collision test_score test_greedy
+
+clean:
+	rm -f $(OBJS) \
+	      bin/solver bin/test_collision bin/test_score bin/test_greedy
+
+.PHONY: all run test test_collision test_score test_greedy clean
