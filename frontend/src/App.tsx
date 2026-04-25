@@ -29,6 +29,7 @@ type SolveResponse = {
   csvInputs: Partial<Record<RequiredCsvField, string>>;
   exitCode: number;
   durationMs: number;
+  debug?: string[];
   algorithmResults?: Array<{
     algorithm_name: string;
     score: number;
@@ -402,6 +403,9 @@ export default function App() {
           message?: string;
         };
         console.log("[App] API Response:", payload);
+        if (payload.debug) {
+          console.log("[App] Server Debug Info:", payload.debug.join("\n"));
+        }
 
         if (!response.ok || !payload.ok) {
           setSolverError(payload.message ?? "Solver request failed");

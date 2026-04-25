@@ -165,7 +165,7 @@ app.post(
         });
       });
 
-      const payload: SolveResponse & { algorithmResults?: any[] } = {
+      const payload: SolveResponse & { algorithmResults?: any[], debug?: string[] } = {
         ok: runResult.exitCode === 0,
         message:
           runResult.exitCode === 0
@@ -179,6 +179,12 @@ app.post(
         csvInputs,
         exitCode: runResult.exitCode,
         durationMs: Date.now() - startedAt,
+        debug: []
+      };
+
+      const logDebug = (msg: string) => {
+        console.log(`[API] ${msg}`);
+        payload.debug?.push(msg);
       };
 
       // Discovery logic: Try regex first (robust version), fallback to newest folder in data/output
@@ -188,10 +194,29 @@ app.post(
       
       if (folderMatch && folderMatch[1]) {
         const rawFolderPath = folderMatch[1].trim();
-        absoluteFolderPath = path.resolve(backendDir, rawFolderPath);
-        console.log(`[API] Found output folder via regex: ${absoluteFolderPath}`);
-      } else {
-        console.log("[API] No output folder found in clean stdout. Full stdout length:", runResult.stdout.length);
+        // Try resolving relative to backendDir AND relative to workspaceRoot
+        const path1 = path.resolve(backendDir, rawFolderPath);
+        const path2 = path.resolve(workspaceRoot, rawFolderPath.replace(/^\.\.\//, ""));
+        
+        logDebug(`Regex match: ${rawFolderPath}`);
+        
+        try {
+          await fs.access(path1);
+          absoluteFolderPath = path1;
+          logDebug(`Path found at backend-relative: ${path1}`);
+        } catch {
+          try {
+            await fs.access(path2);
+            absoluteFolderPath = path2;
+            logDebug(`Path found at root-relative: ${path2}`);
+          } catch {
+            logDebug(`Regex paths not accessible: ${path1} OR ${path2}`);
+          }
+        }
+      } 
+      
+      if (!absoluteFolderPath) {
+        logDebug("Falling back to newest folder in data/output...");
         try {
           const outputDir = path.join(workspaceRoot, "data", "output");
           const entries = await fs.readdir(outputDir, { withFileTypes: true });
@@ -206,23 +231,19 @@ app.post(
             }));
             foldersWithTime.sort((a, b) => b.mtime - a.mtime);
             
-            // Only fallback if the newest folder was created very recently (within last 30s)
             const newest = foldersWithTime[0];
-            if (Date.now() - newest.mtime < 30000) {
-              absoluteFolderPath = newest.path;
-              console.log(`[API] Falling back to recent folder: ${absoluteFolderPath}`);
-            } else {
-              console.warn(`[API] Newest folder ${newest.name} is too old (${Math.round((Date.now() - newest.mtime)/1000)}s).`);
-            }
+            absoluteFolderPath = newest.path;
+            logDebug(`Fallback found newest folder: ${absoluteFolderPath} (mtime: ${newest.mtime})`);
           }
         } catch (err) {
-          console.error("[API] Fallback discovery failed:", err);
+          logDebug(`Fallback discovery failed: ${err}`);
         }
       }
 
       if (absoluteFolderPath) {
         try {
           const filesInFolder = await fs.readdir(absoluteFolderPath);
+          logDebug(`Files in folder: ${filesInFolder.join(", ")}`);
           const algorithmResults = [];
 
           for (const file of filesInFolder) {
@@ -243,12 +264,12 @@ app.post(
                   outputCsv: csvContent
                 });
               } catch (e) {
-                console.error(`[API] Failed to parse JSON: ${file}`, e);
+                logDebug(`Failed to parse JSON ${file}: ${e}`);
               }
             }
           }
           
-          console.log(`[API] Successfully parsed ${algorithmResults.length} results.`);
+          logDebug(`Successfully parsed ${algorithmResults.length} results.`);
           payload.algorithmResults = algorithmResults;
           
           if (algorithmResults.length > 0) {
@@ -257,7 +278,7 @@ app.post(
             payload.outputCsv = bestRun.outputCsv;
           }
         } catch (err) {
-          console.error(`[API] Failed to read output folder: ${absoluteFolderPath}`, err);
+          logDebug(`Failed to read folder content: ${err}`);
         }
       }
 
