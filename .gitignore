@@ -28,6 +28,7 @@ dist-ssr
 .gemini/settings.json
 
 # C++ build artifacts
+backend/test/run_algo_tests
 backend/bin/
 backend/**/*.o
 backend/**/*.d
