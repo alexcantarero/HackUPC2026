@@ -13,7 +13,7 @@
 #include <random>
 
 // ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
-// #include "solvers/greedy.hpp"
+#include "solvers/greedy.hpp"
 // #include "solvers/sa.hpp"
 #include "solvers/jostle_algorithm.hpp"
 // #include "solvers/vns.hpp"
@@ -50,7 +50,7 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
     uint64_t seed)
 {
     // Uncomment each line as the solver is implemented:
-    // if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
+    if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
     // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
@@ -112,12 +112,8 @@ int main(int argc, char* argv[]) {
     std::vector<std::thread> threads;
     threads.reserve(algos.size());
 
-    for (size_t i = 0; i < algos.size(); ++i) {
-        Algorithm* ptr = algos[i].get();
-        threads.emplace_back([ptr, &stop_flag] { 
-            ptr->run(stop_flag); 
-        });
-    }
+    for (auto& algo : algos)
+        threads.emplace_back([&algo, &stop_flag] { algo->run(stop_flag); });
 
     // 4. Wait for time limit, then signal stop
     std::this_thread::sleep_for(
@@ -128,8 +124,8 @@ int main(int argc, char* argv[]) {
 
     // 5. Pick the best solution across all threads
     const Solution* winner = nullptr;
-    for (size_t i = 0; i < algos.size(); ++i) {
-        const Solution& sol = algos[i]->best();
+    for (const auto& algo : algos) {
+        const Solution& sol = algo->best();
         if (!sol.bays.empty() &&
             (winner == nullptr || sol.score < winner->score))
             winner = &sol;

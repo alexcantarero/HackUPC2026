@@ -15,8 +15,6 @@ public:
     void mutateSwap(Chromosome& chromosome);
     void mutateScramble(Chromosome& chromosome);
 
-    double evaluateQ(const Solution& solution) const;
-
 protected:
     struct GAParams {
         int population_size = 24;
@@ -29,15 +27,14 @@ protected:
         double scramble_rate_max = 0.35;
     };
 
-    virtual Solution decodeChromosome(const Chromosome& chromosome) = 0;
+    // Passed stop_flag so it can exit mid-decode if time is up!
+    virtual Solution decodeChromosome(const Chromosome& chromosome, std::atomic<bool>& stop_flag) = 0;
 
     Chromosome randomChromosome();
     const BayType* getBayTypeById(int type_id) const;
     double randomAngleDegrees();
-    static double polygonArea(const std::vector<Point2D>& polygon);
     bool isBetterSolution(const Solution& lhs, const Solution& rhs) const;
     double solutionFootprintArea(const Solution& solution) const;
     GAParams params() const;
-
     double defaultCellSize() const;
 };
