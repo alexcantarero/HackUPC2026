@@ -44,6 +44,9 @@ void GreedySolver::fillPass() {
     resetLayout(); 
     if (info_.warehousePolygon.empty() || info_.bayTypes.empty()) return;
 
+    Solution best_prefix = best_;
+    double best_prefix_score = evaluateTraining(best_.bays);
+
     std::vector<Point2D> anchors = generateSafeAnchors();
     SpatialGrid decode_grid(largestBayDim(info_));
     constexpr int kMaxAnchors = 500;
@@ -80,18 +83,20 @@ void GreedySolver::fillPass() {
 
             if (bay_placed) {
                 best_.bays.push_back(best_candidate);
-                OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
-                decode_grid.insertBay(static_cast<int>(best_.bays.size() - 1), solid);
+                OBB bound = CollisionChecker::createBoundingOBB(best_candidate, &info_);
+                decode_grid.insertBay(static_cast<int>(best_.bays.size() - 1), bound);
 
-                OBB gap = CollisionChecker::createGapOBB(best_candidate, &info_);
-                double min_x = solid.corners[0].x, max_x = min_x;
-                double min_y = solid.corners[0].y, max_y = min_y;
-                expandBounds(gap, min_x, max_x, min_y, max_y);
-                expandBounds(solid, min_x, max_x, min_y, max_y);
+                double cur_score = evaluateTraining(best_.bays);
+                if (cur_score < best_prefix_score) {
+                    best_prefix_score = cur_score;
+                    best_prefix = best_;
+                }
 
-                anchors.push_back({max_x, min_y});
-                anchors.push_back({min_x, max_y});
-                if (anchors.size() > static_cast<size_t>(kMaxAnchors)) anchors.resize(kMaxAnchors);
+                addBayAnchors(best_candidate, anchors);
+
+                if (anchors.size() > static_cast<size_t>(kMaxAnchors)) {
+                    anchors.erase(anchors.begin(), anchors.begin() + (anchors.size() - kMaxAnchors));
+                }
 
                 placed_any_in_pass = true;
                 break; 
@@ -99,6 +104,7 @@ void GreedySolver::fillPass() {
         }
     }
 
+    best_ = best_prefix;
     calculateMetrics(best_);
     best_.producedBy = name();
     updateBest(best_);

@@ -138,9 +138,13 @@ int main(int argc, char* argv[]) {
     } else {
         const std::vector<std::string> portfolio = {"greedy", "ga_ortho", "ga_angle", "jostle", "sa"};
         for (int i = 0; i < (int)portfolio.size(); ++i) {
-            uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
-            auto algo = makeAlgorithm(portfolio[i], staticData, seed);
-            if (algo) algos.push_back(std::move(algo));
+            const std::string& algoName = portfolio[i];
+            int count = (algoName == "greedy") ? 1 : 3;
+            for (int j = 0; j < count; ++j) {
+                uint64_t seed = rd() ^ (static_cast<uint64_t>(i * 10 + j) << 32);
+                auto algo = makeAlgorithm(algoName, staticData, seed, cfg);
+                if (algo) algos.push_back(std::move(algo));
+            }
         }
     }
 

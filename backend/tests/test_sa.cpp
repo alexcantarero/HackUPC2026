@@ -45,7 +45,7 @@ void testSAProducesValidSolution() {
     Solution sol = runSA(s, 2.0);
 
     TEST("SA places at least 1 bay",   sol.bays.size() >= 1);
-    TEST("SA score is not max_double",  sol.score < std::numeric_limits<double>::max());
+    TEST("SA score is not max_double",  sol.official_score < std::numeric_limits<double>::max());
     TEST("SA producedBy is 'sa'",       sol.producedBy == "sa");
 }
 
@@ -62,13 +62,13 @@ void testSABaysAreValid() {
 }
 
 void testSAScoreConsistentWithBays() {
-    std::cout << "\nSA best_.score matches computeScore of its own bays\n";
+    std::cout << "\nSA best_.score matches computeOfficialScore of its own bays\n";
     StaticState s = makeState();
     Solution sol = runSA(s, 2.0);
 
     double wh       = warehouseArea(s.warehousePolygon);
-    double expected = computeScore(sol.bays, s, wh);
-    TEST("SA score matches computeScore", std::fabs(sol.score - expected) < 1e-6);
+    double expected = computeOfficialScore(sol.bays, s, wh);
+    TEST("SA score matches computeOfficialScore", std::fabs(sol.official_score - expected) < 1e-6);
 }
 
 int main() {

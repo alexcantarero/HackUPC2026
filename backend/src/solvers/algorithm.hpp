@@ -82,9 +82,41 @@ protected:
         return anchors;
     }
 
+    void addBayAnchors(const Bay& bay, std::vector<Point2D>& anchors) const {
+        OBB solid = CollisionChecker::createSolidOBB(bay, &info_);
+        OBB gap = CollisionChecker::createGapOBB(bay, &info_);
+        for (int i = 0; i < 4; ++i) {
+            anchors.push_back(solid.corners[i]);
+            anchors.push_back(gap.corners[i]);
+        }
+
+        const BayType* type = CollisionChecker::getBayType(bay.typeId, &info_);
+        if (!type) return;
+
+        double w = type->width;
+        double d = type->depth;
+        double g = type->gap;
+        double M_PI_VAL = 3.14159265358979323846;
+        double cosA = std::cos(bay.rotation * M_PI_VAL / 180.0);
+        double sinA = std::sin(bay.rotation * M_PI_VAL / 180.0);
+
+        double wx1 = bay.x - (d+g)*sinA;
+        double wy1 = bay.y + (d+g)*cosA;
+        double wx2 = bay.x + w*cosA - (d+g)*sinA;
+        double wy2 = bay.y + w*sinA + (d+g)*cosA;
+
+        double nx = -sinA;
+        double ny = cosA;
+
+        for (const auto& bt : info_.bayTypes) {
+            anchors.push_back({wx1 + nx * bt.depth, wy1 + ny * bt.depth});
+            anchors.push_back({wx2 + nx * bt.depth, wy2 + ny * bt.depth});
+        }
+    }
+
     bool tryPlace(const Bay& bay) {
         if (!CollisionChecker::isValidPlacement(bay, best_.bays, &info_, &grid_)) return false;
-        grid_.insertBay(static_cast<int>(best_.bays.size()), CollisionChecker::createSolidOBB(bay, &info_));
+        grid_.insertBay(static_cast<int>(best_.bays.size()), CollisionChecker::createBoundingOBB(bay, &info_));
         best_.bays.push_back(bay);
         return true;
     }
@@ -93,7 +125,7 @@ protected:
         best_.bays = bays;
         grid_.clearAll();
         for (int i = 0; i < static_cast<int>(best_.bays.size()); ++i)
-            grid_.insertBay(i, CollisionChecker::createSolidOBB(best_.bays[i], &info_));
+            grid_.insertBay(i, CollisionChecker::createBoundingOBB(best_.bays[i], &info_));
     }
 
     void updateBest(Solution candidate) {

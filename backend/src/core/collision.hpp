@@ -38,6 +38,8 @@ public:
      */
     static OBB createGapOBB(const Bay& bay, const StaticState* staticInfo);
 
+    static OBB createBoundingOBB(const Bay& bay, const StaticState* staticInfo);
+
     /** Creates an axis-aligned OBB for a rectangular obstacle. */
     static OBB createObstacleOBB(const Obstacle& obs);
 
