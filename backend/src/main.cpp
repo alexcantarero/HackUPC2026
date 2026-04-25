@@ -186,6 +186,8 @@ int main(int argc, char* argv[]) {
     
     std::string ts = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
     std::string finalCsvName = "../../data/output/" + ts + "_" + winner->producedBy + "_" + score_str + ".csv";
+    std::string finalCsvName2 = "../data/output/" + ts + "_" + winner->producedBy + "_" + score_str + ".csv";
+
 
     std::cout << "Best solution: score=" << winner->official_score
               << "  (training_score=" << winner->training_score << ")"
@@ -196,8 +198,12 @@ int main(int argc, char* argv[]) {
     if (io::writeSolution(finalCsvName, *winner)) {
         std::cout << "Successfully saved solution to: " << finalCsvName << "\n";
     } else {
-        std::cerr << "Failed to save solution to: " << finalCsvName << "saving to default \"solution.csv\"" << "\n";
-        io::writeSolution("solution.csv", *winner);
+        if (io::writeSolution(finalCsvName2, *winner))
+            std::cout << "Successfully saved solution to: " << finalCsvName2 << "\n";
+        else {
+            std::cerr << "Failed to save solution to: " << finalCsvName << "saving to default \"solution.csv\"" << "\n";
+            io::writeSolution("solution.csv", *winner);
+        }
     }
 
     return 0;
