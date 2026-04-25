@@ -14,6 +14,8 @@ import Topbar from "./components/Topbar/Topbar";
 import Warehouse from "./components/Warehouse/Warehouse";
 import ARQRDialog from "./components/AR/ARQRDialog";
 
+import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
+
 const DEFAULT_CASE_NUMBER = 3;
 
 // --- FILE LOADERS ---
@@ -129,12 +131,48 @@ export default function App() {
 
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
+  const warehouseRef = useRef<THREE.Group>(null);
   const cameraControlsRef = useRef<CameraControls>(null);
   const [caseNumber, setCaseNumber] = useState(DEFAULT_CASE_NUMBER);
   const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
   const [, setIsTopView] = useState(false);
   const [showGaps, setShowGaps] = useState(false);
   const [showARDialog, setShowARDialog] = useState(false);
+
+  const generateUSDZ = useCallback(async () => {
+    if (!warehouseRef.current) return;
+    try {
+      const exporter = new USDZExporter();
+      // Handle older Three.js USDZExporter callback signature
+      const arrayBuffer = await new Promise<any>((resolve, reject) => {
+        try {
+          // @ts-ignore
+          const result = exporter.parse(warehouseRef.current, (res) => resolve(res), reject);
+          if ((result as any) && (result as any) instanceof Promise) {
+            (result as any).then(resolve).catch(reject);
+          }
+        } catch(e) {
+          reject(e);
+        }
+      });
+      const blob = new Blob([arrayBuffer], { type: "model/vnd.usdz+zip" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.rel = "ar";
+      link.download = "warehouse.usdz";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (e) {
+      alert("Failed to generate iOS AR model: " + e);
+    }
+  }, []);
+
+  const isIOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isSafari = typeof navigator !== "undefined" && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const isIOSSafari = isIOS && isSafari;
 
   const toggleGaps = useCallback(() => {
     setShowGaps((prev) => !prev);
@@ -281,33 +319,53 @@ export default function App() {
               display: ('ontouchstart' in window) ? 'block' : 'none' 
             }}
           >
-            <button 
-              onClick={async () => {
-                try {
-                  await store.enterAR();
-                } catch (e) {
-                  alert(
-                    "WebXR is not supported by your current browser.\n\n" +
-                    "If you are on an iPhone, standard Safari does not support AR. " +
-                    "Please download 'WebXR Viewer' by Mozilla from the App Store and open this link there to view the hologram."
-                  );
-                }
-              }}
-              style={{
-                padding: '16px 32px',
-                backgroundColor: '#ff5722',
-                color: 'white',
-                border: 'none',
-                borderRadius: '50px',
-                fontWeight: 'bold',
-                fontSize: '1.1rem',
-                cursor: 'pointer',
-                boxShadow: '0 8px 15px rgba(0,0,0,0.3)',
-                WebkitAppearance: 'none'
-              }}
-            >
-              PROJECT ON TABLE (AR)
-            </button>
+            {isIOSSafari ? (
+              <button 
+                onClick={generateUSDZ}
+                style={{
+                  padding: '16px 32px',
+                  backgroundColor: '#007aff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50px',
+                  fontWeight: 'bold',
+                  fontSize: '1.1rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 8px 15px rgba(0,0,0,0.3)',
+                  WebkitAppearance: 'none'
+                }}
+              >
+                PROJECT ON TABLE (iOS AR)
+              </button>
+            ) : (
+              <button 
+                onClick={async () => {
+                  try {
+                    await store.enterAR();
+                  } catch (e) {
+                    alert(
+                      "WebXR is not supported by your current browser.\n\n" +
+                      "If you are on an iPhone, standard Safari does not support AR. " +
+                      "Please download 'WebXR Viewer' by Mozilla from the App Store and open this link there to view the hologram."
+                    );
+                  }
+                }}
+                style={{
+                  padding: '16px 32px',
+                  backgroundColor: '#ff5722',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50px',
+                  fontWeight: 'bold',
+                  fontSize: '1.1rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 8px 15px rgba(0,0,0,0.3)',
+                  WebkitAppearance: 'none'
+                }}
+              >
+                PROJECT ON TABLE (AR)
+              </button>
+            )}
           </div>
 
           <div className="canvas-container">
@@ -321,54 +379,56 @@ export default function App() {
                   <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
                   <ambientLight intensity={3} />
 
-                  <mesh position={[0, FLOOR_Y, 0]} ref={meshRef} geometry={sceneGeometry.floor}>
-                    <meshStandardMaterial color="#a3a3a3" />
-                  </mesh>
-
-                  {sceneGeometry.ceilingParts.map((part, index) => (
-                    <FadingDollhouseElement
-                      key={`ceiling-${index}`}
-                      geometry={part.geometry}
-                      positionY={FLOOR_Y + part.y}
-                      thresholdY={part.y}
-                    />
-                  ))}
-
-                  {sceneGeometry.ceilingWalls.map((cw, index) => (
-                    <FadingDollhouseElement
-                      key={`ceiling-wall-${index}`}
-                      geometry={cw.geometry}
-                      positionY={FLOOR_Y}
-                      thresholdY={cw.topY}
-                    />
-                  ))}
-
-                  {sceneGeometry.walls.map((wall, index) => (
-                    <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall}>
-                      <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+                  <group name="warehouseGroup" ref={warehouseRef}>
+                    <mesh position={[0, FLOOR_Y, 0]} ref={meshRef} geometry={sceneGeometry.floor}>
+                      <meshStandardMaterial color="#a3a3a3" />
                     </mesh>
-                  ))}
 
-                  {sceneGeometry.obstacles.map((obstacle, index) => (
-                    <mesh
-                      key={`obstacle-${index}`}
-                      position={[
-                        obstacle.position[0],
-                        FLOOR_Y + obstacle.position[1],
-                        obstacle.position[2],
-                      ]}
-                      geometry={obstacle.geometry}
-                    >
-                      <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
-                    </mesh>
-                  ))}
+                    {sceneGeometry.ceilingParts.map((part, index) => (
+                      <FadingDollhouseElement
+                        key={`ceiling-${index}`}
+                        geometry={part.geometry}
+                        positionY={FLOOR_Y + part.y}
+                        thresholdY={part.y}
+                      />
+                    ))}
 
-                  <Warehouse 
-                    layoutData={layoutData}
-                    bayData={bayData}
-                    warehouseCenter={warehouseCenter}
-                    showGaps={showGaps}
-                  />
+                    {sceneGeometry.ceilingWalls.map((cw, index) => (
+                      <FadingDollhouseElement
+                        key={`ceiling-wall-${index}`}
+                        geometry={cw.geometry}
+                        positionY={FLOOR_Y}
+                        thresholdY={cw.topY}
+                      />
+                    ))}
+
+                    {sceneGeometry.walls.map((wall, index) => (
+                      <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall}>
+                        <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+                      </mesh>
+                    ))}
+
+                    {sceneGeometry.obstacles.map((obstacle, index) => (
+                      <mesh
+                        key={`obstacle-${index}`}
+                        position={[
+                          obstacle.position[0],
+                          FLOOR_Y + obstacle.position[1],
+                          obstacle.position[2],
+                        ]}
+                        geometry={obstacle.geometry}
+                      >
+                        <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
+                      </mesh>
+                    ))}
+
+                    <Warehouse 
+                      layoutData={layoutData}
+                      bayData={bayData}
+                      warehouseCenter={warehouseCenter}
+                      showGaps={showGaps}
+                    />
+                  </group>
 
                   <CameraControls ref={cameraControlsRef} makeDefault />
                 </Suspense>
