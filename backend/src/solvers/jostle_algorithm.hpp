@@ -14,9 +14,13 @@ public:
     bool rotateBay(std::vector<Bay>& state, int bayIndex, double deltaAngle);
     bool swapBays(std::vector<Bay>& state, int bayIndex1, int bayIndex2);
     bool changeBayType(std::vector<Bay>& state, int bayIndex, int newTypeId);
+    bool addRandomBay(std::vector<Bay>& state);
+    bool removeRandomBay(std::vector<Bay>& state);
 
-    // Full state validation helper
+    // Helpers
+    void greedyPlacement(std::vector<Bay>& state);
     bool isValidState(const std::vector<Bay>& state);
+    bool isBayValidInState(const std::vector<Bay>& state, int bayIndex);
 
     // Objective function
     double evaluateQ(const std::vector<Bay>& state) const;

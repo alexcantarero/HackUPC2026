@@ -56,7 +56,7 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
     // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
-    if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, 1000); // 1000 max iterations by default
+    if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, -1); // Run until time limit
     // if (algoName == "vns")      return std::make_unique<Vns>(info, seed);
 
     std::cerr << "[warn] Unknown algorithm '" << algoName << "'. No solver created.\n";
