@@ -82,6 +82,6 @@ void GreedySolver::fillPass() {
         }
     }
 
-    best_.score      = computeScore(best_.bays, info_, wh_area_);
+    calculateMetrics(best_);
     best_.producedBy = name();
 }

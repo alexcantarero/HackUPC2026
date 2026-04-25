@@ -43,7 +43,7 @@ void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
         if (accepted) {
             Solution currentSol;
             currentSol.bays   = current_bays_;
-            currentSol.score  = currentScore();
+            calculateMetrics(currentSol);
             updateBest(currentSol);
         }
 
@@ -52,10 +52,6 @@ void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
 }
 
 // ── State management ────────────────────────────────────────────────────────
-
-double SimulatedAnnealing::currentScore() const {
-    return computeScore(current_bays_, info_, wh_area_);
-}
 
 void SimulatedAnnealing::initFromBays(const std::vector<Bay>& bays) {
     current_bays_ = bays;
@@ -118,6 +114,7 @@ double SimulatedAnnealing::calibrateT0() {
 
     double sum_delta = 0.0;
     int    count     = 0;
+    double cur_score = evaluateTraining(current_bays_);
 
     for (int probe = 0; probe < 200; ++probe) {
         const Bay& b        = current_bays_[bay_dist(rng_)];
@@ -127,8 +124,10 @@ double SimulatedAnnealing::calibrateT0() {
 
         double new_sum_r = sum_ratio_ - bayRatio(b.typeId) + nt.price / nt.nLoads;
         double new_sum_a = sum_area_  - bayArea(b.typeId)  + nt.width * nt.depth;
-        double new_s = std::pow(new_sum_r, 2.0 - new_sum_a / wh_area_);
-        double delta = std::fabs(new_s - currentScore());
+        if (new_sum_a <= 0.0) continue;
+        double af    = wh_area_ / new_sum_a;
+        double new_s = new_sum_r * af * af;
+        double delta = std::fabs(new_s - cur_score);
         sum_delta += delta;
         ++count;
     }
@@ -201,8 +200,9 @@ bool SimulatedAnnealing::moveReplaceType(double T) {
     // Early Metropolis check (skip expensive SAT if thermodynamically rejected)
     double new_sum_r  = sum_ratio_ - old_ratio + new_ratio;
     double new_sum_a  = sum_area_  - old_area  + new_area;
-    double new_score  = std::pow(new_sum_r, 2.0 - new_sum_a / wh_area_);
-    double delta      = new_score - currentScore();
+    double af         = (new_sum_a > 0.0) ? wh_area_ / new_sum_a : 0.0;
+    double new_score  = new_sum_r * af * af;
+    double delta      = new_score - evaluateTraining(current_bays_);
 
     if (delta >= 0.0) {
         if (T <= 0.0 || unif(rng_) >= std::exp(-delta / T))

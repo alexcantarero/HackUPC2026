@@ -34,7 +34,6 @@ private:
     std::vector<Point2D> event_points_;  ///< solid OBB corners of current bays
 
     // ── Helpers ──────────────────────────────────────────────────────────
-    double currentScore() const;
     void   initFromBays(const std::vector<Bay>& bays);
     void   rebuildEventPoints();
     double calibrateT0();

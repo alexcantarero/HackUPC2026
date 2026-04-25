@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <thread>
 
 JostleAlgorithm::JostleAlgorithm(const StaticState& info, uint64_t seed, int maxIterations)
     : Algorithm(info, seed), maxIterations_(maxIterations) {
@@ -14,11 +15,8 @@ std::string JostleAlgorithm::name() const {
 bool JostleAlgorithm::isValidState(const std::vector<Bay>& state) {
     std::vector<Bay> placed;
     placed.reserve(state.size());
-
     for (const Bay& bay : state) {
-        if (!CollisionChecker::isValidPlacement(bay, placed, &info_, nullptr)) {
-            return false;
-        }
+        if (!CollisionChecker::isValidPlacement(bay, placed, &info_, nullptr)) return false;
         placed.push_back(bay);
     }
     return true;
@@ -26,43 +24,32 @@ bool JostleAlgorithm::isValidState(const std::vector<Bay>& state) {
 
 bool JostleAlgorithm::isBayValidInState(const std::vector<Bay>& state, int bayIndex) {
     if (bayIndex < 0 || bayIndex >= (int)state.size()) return false;
-    
-    thread_local std::vector<Bay> others;
-    others.clear();
+    const Bay& candidate = state[bayIndex];
+    std::vector<Bay> others;
     others.reserve(state.size());
     for (int i = 0; i < (int)state.size(); ++i) {
-        if (i != bayIndex) {
-            others.push_back(state[i]);
-        }
+        if (i != bayIndex) others.push_back(state[i]);
     }
-
-    return CollisionChecker::isValidPlacement(state[bayIndex], others, &info_, nullptr);
+    return CollisionChecker::isValidPlacement(candidate, others, &info_, nullptr);
 }
 
 void JostleAlgorithm::greedyPlacement(std::vector<Bay>& state) {
     if (info_.bayTypes.empty() || info_.warehousePolygon.empty()) return;
-
     double minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
     for(auto p : info_.warehousePolygon) {
         minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
         minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
     }
-    if (minX >= maxX || minY >= maxY) return;
-
     std::vector<BayType> sortedTypes = info_.bayTypes;
+    // Sort by "Efficiency": Area per Price. We want the most area for the least money.
     std::sort(sortedTypes.begin(), sortedTypes.end(), [](const BayType& a, const BayType& b){
-        return (a.width * a.depth * a.nLoads) > (b.width * b.depth * b.nLoads);
+        return (a.width * a.depth / a.price) > (b.width * b.depth / b.price);
     });
-
-    double stepX = (maxX - minX) / 100.0;
-    double stepY = (maxY - minY) / 100.0;
-    if (stepX <= 0.1) stepX = 1.0;
-    if (stepY <= 0.1) stepY = 1.0;
-
-    for (double y = minY; y <= maxY; y += stepY) {
-        for (double x = minX; x <= maxX; x += stepX) {
+    
+    // Fine-grained grid search for the seed
+    for (double y = minY; y <= maxY; y += 100.0) {
+        for (double x = minX; x <= maxX; x += 100.0) {
             for (const auto& bt : sortedTypes) {
-                // Initial greedy still uses orthogonal for speed and better coverage
                 for (double rot : {0.0, 90.0, 180.0, 270.0}) {
                     Bay b = {bt.id, x, y, rot};
                     if (CollisionChecker::isValidPlacement(b, state, &info_, nullptr)) {
@@ -78,8 +65,7 @@ void JostleAlgorithm::greedyPlacement(std::vector<Bay>& state) {
 
 bool JostleAlgorithm::translateBay(std::vector<Bay>& state, int bayIndex, double deltaX, double deltaY) {
     double oldX = state[bayIndex].x, oldY = state[bayIndex].y;
-    state[bayIndex].x += deltaX;
-    state[bayIndex].y += deltaY;
+    state[bayIndex].x += deltaX; state[bayIndex].y += deltaY;
     if (isBayValidInState(state, bayIndex)) return true;
     state[bayIndex].x = oldX; state[bayIndex].y = oldY;
     return false;
@@ -89,7 +75,6 @@ bool JostleAlgorithm::rotateBay(std::vector<Bay>& state, int bayIndex, double de
     double oldRot = state[bayIndex].rotation;
     state[bayIndex].rotation = std::fmod(oldRot + deltaAngle, 360.0);
     if (state[bayIndex].rotation < 0) state[bayIndex].rotation += 360.0;
-
     if (isBayValidInState(state, bayIndex)) return true;
     state[bayIndex].rotation = oldRot;
     return false;
@@ -113,39 +98,30 @@ bool JostleAlgorithm::changeBayType(std::vector<Bay>& state, int bayIndex, int n
 
 bool JostleAlgorithm::addRandomBay(std::vector<Bay>& state) {
     if (info_.bayTypes.empty() || info_.warehousePolygon.empty()) return false;
-    
     double minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
     for(auto p : info_.warehousePolygon) {
         minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
         minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
     }
-    if (minX >= maxX) return false;
-
     std::uniform_int_distribution<int> type_dist(0, (int)info_.bayTypes.size() - 1);
     std::uniform_real_distribution<double> x_dist(minX, maxX);
     std::uniform_real_distribution<double> y_dist(minY, maxY);
-    std::uniform_real_distribution<double> rot_dist(0.0, 360.0); // Arbitrary rotation
+    std::uniform_real_distribution<double> rot_dist(0.0, 360.0);
     std::uniform_real_distribution<double> prob(0.0, 1.0);
 
-    for (int attempt = 0; attempt < 30; ++attempt) {
+    for (int attempt = 0; attempt < 50; ++attempt) {
         double rx, ry;
-        if (!state.empty() && prob(rng_) < 0.80) {
-            std::uniform_int_distribution<int> bay_dist(0, (int)state.size() - 1);
-            int ref = bay_dist(rng_);
-            double offset_range = largestBayDim(info_) * 1.5; 
-            std::uniform_real_distribution<double> offset(-offset_range, offset_range);
-            rx = state[ref].x + offset(rng_);
-            ry = state[ref].y + offset(rng_);
+        if (!state.empty() && prob(rng_) < 0.90) {
+            int ref = std::uniform_int_distribution<int>(0, state.size() - 1)(rng_);
+            double range = 1500.0;
+            std::uniform_real_distribution<double> offset(-range, range);
+            rx = state[ref].x + offset(rng_); ry = state[ref].y + offset(rng_);
         } else {
-            rx = x_dist(rng_);
-            ry = y_dist(rng_);
+            rx = x_dist(rng_); ry = y_dist(rng_);
         }
-
         Bay newBay = {info_.bayTypes[type_dist(rng_)].id, rx, ry, rot_dist(rng_)};
-        
         if (CollisionChecker::isValidPlacement(newBay, state, &info_, nullptr)) {
-            state.push_back(newBay);
-            return true;
+            state.push_back(newBay); return true;
         }
     }
     return false;
@@ -162,86 +138,73 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
     std::vector<Bay> current_state;
     greedyPlacement(current_state);
     
-    double current_score = calculateScore(current_state);
-    
-    bool is_minimization = true; 
-    
+    double current_score = evaluateTraining(current_state);
     if (!current_state.empty()) {
         Solution seed;
         seed.bays = current_state;
-        seed.score = current_score;
-        updateBest(seed);
+        calculateMetrics(seed);
+        updateBest(std::move(seed));
     }
 
-    std::uniform_real_distribution<double> move_dist(-20.0, 20.0); 
-    std::uniform_real_distribution<double> rot_delta_dist(-15.0, 15.0); // Small jiggles
+    std::uniform_real_distribution<double> move_dist(-50.0, 50.0); 
+    std::uniform_real_distribution<double> rot_delta_dist(-15.0, 15.0); 
     std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
     
-    std::discrete_distribution<int> op_dist({50, 5, 20, 15, 5, 5}); 
+    // Aggressively prioritize Adding (weight 80) to fill the warehouse
+    std::discrete_distribution<int> op_dist({80, 1, 10, 5, 2, 2}); 
 
     int iterations = 0;
-    double temp = 1000.0;
-    const double cooling = 0.9999;
+    double temp = 1.0; 
+    const double cooling = 0.999995;
 
-    while (!stop_flag && (maxIterations_ <= 0 || iterations < maxIterations_)) {
+    while (!stop_flag) {
+        if (maxIterations_ > 0 && iterations >= maxIterations_) break;
+        
         int op = op_dist(rng_);
         bool success = false;
-        
         int mod_idx1 = -1, mod_idx2 = -1;
         Bay backup_bay1, backup_bay2;
         bool added = false, removed = false;
 
         if (op == 0) {
-            success = addRandomBay(current_state);
-            if (success) added = true;
-        } else if (op == 1) {
-            if (!current_state.empty()) {
-                std::uniform_int_distribution<int> dist(0, (int)current_state.size() - 1);
-                mod_idx1 = dist(rng_);
-                backup_bay1 = current_state[mod_idx1];
-                current_state.erase(current_state.begin() + mod_idx1);
-                removed = true;
-                success = true;
-            }
-        } else if (!current_state.empty()) {
-            std::uniform_int_distribution<int> bay_dist(0, (int)current_state.size() - 1);
-            mod_idx1 = bay_dist(rng_);
+            if (addRandomBay(current_state)) { success = true; added = true; }
+        } else if (op == 1 && current_state.size() > 5) { // Protect small layouts from reduction
+            mod_idx1 = std::uniform_int_distribution<int>(0, current_state.size() - 1)(rng_);
             backup_bay1 = current_state[mod_idx1];
-            
-            if (op == 2) {
-                success = translateBay(current_state, mod_idx1, move_dist(rng_), move_dist(rng_));
-            } else if (op == 3) {
-                success = rotateBay(current_state, mod_idx1, rot_delta_dist(rng_));
-            } else if (op == 4) {
+            current_state.erase(current_state.begin() + mod_idx1);
+            removed = true; success = true;
+        } else if (!current_state.empty()) {
+            mod_idx1 = std::uniform_int_distribution<int>(0, current_state.size() - 1)(rng_);
+            backup_bay1 = current_state[mod_idx1];
+            if (op == 2) success = translateBay(current_state, mod_idx1, move_dist(rng_), move_dist(rng_));
+            else if (op == 3) success = rotateBay(current_state, mod_idx1, rot_delta_dist(rng_));
+            else if (op == 4) {
                 mod_idx2 = (mod_idx1 + 1) % (int)current_state.size();
                 backup_bay2 = current_state[mod_idx2];
                 success = swapBays(current_state, mod_idx1, mod_idx2);
             } else if (op == 5) {
-                std::uniform_int_distribution<int> type_dist(0, (int)info_.bayTypes.size() - 1);
-                success = changeBayType(current_state, mod_idx1, info_.bayTypes[type_dist(rng_)].id);
+                int tid = info_.bayTypes[std::uniform_int_distribution<int>(0, info_.bayTypes.size()-1)(rng_)].id;
+                success = changeBayType(current_state, mod_idx1, tid);
             }
         }
 
         if (success) {
-            double next_score = calculateScore(current_state);
-            double delta;
-            if (is_minimization) {
-                delta = next_score - current_score;
-            } else {
-                delta = current_score - next_score;
-            }
+            double next_score = evaluateTraining(current_state);
+            double delta = next_score - current_score;
             
             if (delta <= 0 || (temp > 1e-9 && prob_dist(rng_) < std::exp(-delta / temp))) {
                 current_score = next_score;
                 if (delta <= 0) {
-                    updateBest({current_state, current_score, name(), 0.0});
+                    Solution sol;
+                    sol.bays = current_state;
+                    calculateMetrics(sol);
+                    updateBest(std::move(sol));
                 }
             } else {
-                if (added) {
-                    current_state.pop_back();
-                } else if (removed) {
-                    current_state.insert(current_state.begin() + mod_idx1, backup_bay1);
-                } else {
+                // Revert
+                if (added) current_state.pop_back();
+                else if (removed) current_state.insert(current_state.begin() + mod_idx1, backup_bay1);
+                else {
                     current_state[mod_idx1] = backup_bay1;
                     if (mod_idx2 != -1) current_state[mod_idx2] = backup_bay2;
                 }
@@ -249,7 +212,8 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
         }
 
         temp *= cooling;
-        if (temp < 0.1) temp = 1000.0;
+        if (temp < 0.1) temp = 1.0; 
         iterations++;
+        if (iterations % 500 == 0) std::this_thread::yield();
     }
 }

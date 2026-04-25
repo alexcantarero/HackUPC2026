@@ -17,8 +17,6 @@ SRCS = $(SRCDIR)/main.cpp \
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(OBJS:.o=.d)
 
--include $(DEPS)
-
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
@@ -70,3 +68,6 @@ clean:
 	      bin/solver bin/test_collision bin/test_score bin/test_greedy bin/test_sa
 
 .PHONY: all run test test_collision test_score test_greedy test_sa clean
+
+# Must be after all targets so the first target remains 'all'
+-include $(DEPS)

@@ -11,9 +11,11 @@ public:
 
     void run(std::atomic<bool>& stop_flag) override;
 
-    Chromosome crossoverOX1(const Chromosome& p1, const Chromosome& p2);
+    // Replaced OX1 with TwoPoint, and added Replace mutation
+    Chromosome crossoverTwoPoint(const Chromosome& p1, const Chromosome& p2);
     void mutateSwap(Chromosome& chromosome);
     void mutateScramble(Chromosome& chromosome);
+    void mutateReplace(Chromosome& chromosome); // New: Randomly injects a high-value bay
 
 protected:
     struct GAParams {
@@ -25,9 +27,10 @@ protected:
         double swap_rate_max = 0.55;
         double scramble_rate_base = 0.10;
         double scramble_rate_max = 0.35;
+        double replace_rate_base = 0.15; // New parameter
+        double replace_rate_max = 0.40;
     };
 
-    // Passed stop_flag so it can exit mid-decode if time is up!
     virtual Solution decodeChromosome(const Chromosome& chromosome, std::atomic<bool>& stop_flag) = 0;
 
     Chromosome randomChromosome();

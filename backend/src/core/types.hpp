@@ -51,7 +51,8 @@ struct Bay {
 
 struct Solution {
     std::vector<Bay> bays;
-    double      score      = std::numeric_limits<double>::max(); ///< Q value; lower is better
-    std::string producedBy = "";                                 ///< algorithm name, for logging
-    double      timeTaken  = 0.0;                                ///< time (seconds) since algorithm start
+    double      training_score = std::numeric_limits<double>::max(); // Q_new
+    double      official_score = std::numeric_limits<double>::max(); // Q_old
+    std::string producedBy     = "";                                 
+    double      timeTaken      = 0.0;                                
 };

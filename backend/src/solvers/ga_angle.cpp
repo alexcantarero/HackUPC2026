@@ -26,15 +26,16 @@ Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome, std::atomic<
     constexpr double kGoldenAngle = 137.50776405003785;
 
     if (chromosome.empty()) {
-        decoded.score = calculateScore(decoded.bays);
+        calculateMetrics(decoded);
         return decoded;
     }
 
-    std::vector<Point2D> anchors = generateSafeAnchors(); // From parent class!
+    std::vector<Point2D> anchors = generateSafeAnchors();
     SpatialGrid decode_grid(defaultCellSize());
+    bool is_first_bay = true; // SPEEDUP FLAG
 
     for (int bay_id : chromosome) {
-        if (stop_flag.load()) break; // HARD BREAK: Instantly yield thread on 29.0s!
+        if (stop_flag.load()) break; 
 
         if (getBayTypeById(bay_id) == nullptr) continue;
 
@@ -66,6 +67,13 @@ Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome, std::atomic<
 
         if (!placed) continue;
 
+        // MASSIVE SPEEDUP: Prune the grid anchors once we're securely bootstrapped
+        if (is_first_bay) {
+            anchors.clear();
+            for (const auto& point : info_.warehousePolygon) anchors.push_back(point);
+            is_first_bay = false;
+        }
+
         decoded.bays.push_back(best_candidate);
         OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
         decode_grid.insertBay(static_cast<int>(decoded.bays.size() - 1), solid);
@@ -82,6 +90,6 @@ Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome, std::atomic<
         if (anchors.size() > static_cast<size_t>(kMaxAnchors)) anchors.resize(kMaxAnchors);
     }
 
-    decoded.score = calculateScore(decoded.bays);
+    calculateMetrics(decoded);
     return decoded;
 }
