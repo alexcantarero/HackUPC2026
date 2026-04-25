@@ -138,7 +138,7 @@ void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
     int current_season = 0;
 
     // 0 = Relocate, 1 = Replace Type, 2 = Jitter (Jitter unused for now, but can be added as a 3rd move type if desired, doesn't really work well)
-    std::uniform_int_distribution<int> move_dist(0, 1);
+    std::uniform_int_distribution<int> move_dist(0, 3);
 
     while (!stop_flag) {
         // 1. Check the clock
@@ -170,9 +170,18 @@ void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
 
         // 7. Run the epoch
         for (int step = 0; step < EPOCH_LENGTH && !stop_flag; ++step) {
-            bool accepted = (move_dist(rng_) == 0)
-                            ? moveRelocate(T)
-                            : moveReplaceType(T);
+            int move_type = move_dist(rng_);
+            bool accepted = false;
+            
+            if (move_type == 0) {
+                accepted = moveRelocate(T);
+            } else if (move_type == 1) {
+                accepted = moveReplaceType(T);
+            } else if (move_type == 2) {
+                accepted = moveAddBay(T);
+            } else {
+                accepted = moveRemoveBay(T);
+            }
 
             if (accepted) {
                 Solution currentSol;
@@ -338,44 +347,111 @@ bool SimulatedAnnealing::moveRelocate(double T) {
     return false;
 }
 
-// ── Move: Replace Type ────────────────────────────────────────────────────────
+// ── Move: Add Bay ─────────────────────────────────────────────────────────────
+bool SimulatedAnnealing::moveAddBay(double T) {
+    if (info_.bayTypes.empty() || info_.warehousePolygon.empty()) return false;
 
-bool SimulatedAnnealing::moveJitter(double T) {
-    (void)T; // ΔQ = 0 for spatial jitter -> thermodynamically always accepted
-    if (current_bays_.empty()) return false;
+    std::uniform_int_distribution<int> type_dist(0, static_cast<int>(info_.bayTypes.size()) - 1);
+    std::uniform_real_distribution<double> unif(0.0, 1.0);
 
-    std::uniform_int_distribution<int> bay_dist(0, static_cast<int>(current_bays_.size()) - 1);
-    
-    // Tiny continuous adjustments: e.g., max 2.0 units of distance, max 3.0 degrees of rotation
-    std::uniform_real_distribution<double> shift_dist(-2.0, 2.0); 
-    std::uniform_real_distribution<double> rot_dist(-3.0, 3.0);   
+    const BayType& nt = info_.bayTypes[type_dist(rng_)];
+    double new_ratio  = nt.price / nt.nLoads;
+    double new_area   = nt.width * nt.depth;
 
-    int idx = bay_dist(rng_);
-    Bay removed = removeBayAt(idx);
+    // Early Metropolis check using O(1) incremental sums
+    double new_sum_r = sum_ratio_ + new_ratio;
+    double new_sum_a = sum_area_  + new_area;
+    double af        = (new_sum_a > 0.0) ? wh_area_ / new_sum_a : 0.0;
+    double new_score = new_sum_r * af * af;
+    double cur_af    = (sum_area_ > 0.0) ? wh_area_ / sum_area_ : 0.0;
+    double cur_score = (sum_area_ > 0.0) ? sum_ratio_ * cur_af * cur_af
+                                         : std::numeric_limits<double>::max();
+    double delta     = new_score - cur_score;
 
-    // Apply micro-adjustments
-    Bay candidate = removed;
-    candidate.x += shift_dist(rng_);
-    candidate.y += shift_dist(rng_);
-    candidate.rotation += rot_dist(rng_);
-
-    // Normalize rotation if your engine requires it (e.g., 0 to 360)
-    if (candidate.rotation < 0.0) candidate.rotation += 360.0;
-    if (candidate.rotation >= 360.0) candidate.rotation -= 360.0;
-
-    // Metropolis check: Jitter doesn't change area/ratio (since type is the same), 
-    // so Delta Score is 0. We ALWAYS accept it if it's physically valid!
-    if (CollisionChecker::isValidPlacement(candidate, current_bays_, &info_, &current_grid_)) {
-        appendBay(candidate);
-        // Note: rebuildEventPoints() is optional here depending on how strict you want to be,
-        // but doing it keeps your event_points_ accurate for the macro moves.
-        rebuildEventPoints(); 
-        return true;
+    if (delta >= 0.0) {
+        if (T <= 0.0 || unif(rng_) >= std::exp(-delta / T))
+            return false;
     }
 
-    // Reject: restore original
-    appendBay(removed);
+    // Compute warehouse bounding box (cheap for small polygon)
+    double minX = info_.warehousePolygon[0].x, maxX = minX;
+    double minY = info_.warehousePolygon[0].y, maxY = minY;
+    for (const auto& p : info_.warehousePolygon) {
+        minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
+        minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
+    }
+    std::uniform_real_distribution<double> x_dist(minX, maxX);
+    std::uniform_real_distribution<double> y_dist(minY, maxY);
+    std::uniform_real_distribution<double> off(-1500.0, 1500.0);
+
+    // 70% near an existing bay center, 30% fully random — avoids the event-point
+    // overlap issue where placing the bay CENTER at an OBB corner always collides.
+    for (int attempt = 0; attempt < 50; ++attempt) {
+        double rx, ry;
+        if (!current_bays_.empty() && unif(rng_) < 0.7) {
+            std::uniform_int_distribution<int> ref_dist(0, static_cast<int>(current_bays_.size()) - 1);
+            const Bay& ref = current_bays_[ref_dist(rng_)];
+            rx = ref.x + off(rng_);
+            ry = ref.y + off(rng_);
+        } else {
+            rx = x_dist(rng_);
+            ry = y_dist(rng_);
+        }
+
+        for (double rot : {0.0, 90.0, 180.0, 270.0}) {
+            Bay candidate{nt.id, rx, ry, rot};
+            if (CollisionChecker::isValidPlacement(
+                    candidate, current_bays_, &info_, &current_grid_)) {
+                appendBay(candidate);
+                sum_ratio_ = new_sum_r;
+                sum_area_  = new_sum_a;
+                rebuildEventPoints();
+                return true;
+            }
+        }
+    }
     return false;
+}
+
+bool SimulatedAnnealing::moveRemoveBay(double T) {
+    // Prevent emptying the warehouse completely
+    if (current_bays_.size() <= 1) return false;
+
+    std::uniform_int_distribution<int> bay_dist(0, static_cast<int>(current_bays_.size()) - 1);
+    std::uniform_real_distribution<double> unif(0.0, 1.0);
+
+    int idx = bay_dist(rng_);
+    const Bay& current = current_bays_[idx];
+    
+    double old_ratio = bayRatio(current.typeId);
+    double old_area  = bayArea(current.typeId);
+
+    double new_sum_r = sum_ratio_ - old_ratio;
+    double new_sum_a = sum_area_  - old_area;
+    
+    if (new_sum_a <= 0.0) return false; // Sanity check
+
+    // Early Metropolis check using O(1) incremental sums.
+    // Note: removing a HIGH-ratio bay (e.g. Type 0) gives delta < 0 (improvement),
+    // so those removals are ALWAYS accepted — this is correct behaviour.
+    double af        = wh_area_ / new_sum_a;
+    double new_score = new_sum_r * af * af;
+    double cur_af    = (sum_area_ > 0.0) ? wh_area_ / sum_area_ : 0.0;
+    double cur_score = sum_ratio_ * cur_af * cur_af;
+    double delta     = new_score - cur_score;
+
+    if (delta >= 0.0) {
+        if (T <= 0.0 || unif(rng_) >= std::exp(-delta / T))
+            return false; 
+    }
+
+    // Attempt Removal (Always physically valid)
+    removeBayAt(idx); // swap-and-pop handles grid removal cleanly
+    sum_ratio_ = new_sum_r;
+    sum_area_  = new_sum_a;
+    rebuildEventPoints();
+    
+    return true;
 }
 
 bool SimulatedAnnealing::moveReplaceType(double T) {
@@ -406,7 +482,8 @@ bool SimulatedAnnealing::moveReplaceType(double T) {
     double new_sum_a  = sum_area_  - old_area  + new_area;
     double af         = (new_sum_a > 0.0) ? wh_area_ / new_sum_a : 0.0;
     double new_score  = new_sum_r * af * af;
-    double delta      = new_score - evaluateTraining(current_bays_);
+    double cur_af2    = (sum_area_ > 0.0) ? wh_area_ / sum_area_ : 0.0;
+    double delta      = new_score - sum_ratio_ * cur_af2 * cur_af2;
 
     if (delta >= 0.0) {
         if (T <= 0.0 || unif(rng_) >= std::exp(-delta / T))
