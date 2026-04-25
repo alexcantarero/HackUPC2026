@@ -112,8 +112,12 @@ int main(int argc, char* argv[]) {
     std::vector<std::thread> threads;
     threads.reserve(algos.size());
 
-    for (auto& algo : algos)
-        threads.emplace_back([&algo, &stop_flag] { algo->run(stop_flag); });
+    for (size_t i = 0; i < algos.size(); ++i) {
+        Algorithm* ptr = algos[i].get();
+        threads.emplace_back([ptr, &stop_flag] { 
+            ptr->run(stop_flag); 
+        });
+    }
 
     // 4. Wait for time limit, then signal stop
     std::this_thread::sleep_for(
@@ -124,8 +128,8 @@ int main(int argc, char* argv[]) {
 
     // 5. Pick the best solution across all threads
     const Solution* winner = nullptr;
-    for (const auto& algo : algos) {
-        const Solution& sol = algo->best();
+    for (size_t i = 0; i < algos.size(); ++i) {
+        const Solution& sol = algos[i]->best();
         if (!sol.bays.empty() &&
             (winner == nullptr || sol.score < winner->score))
             winner = &sol;

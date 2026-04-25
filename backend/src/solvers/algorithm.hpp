@@ -8,6 +8,7 @@
 #include <string>
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 
 class Algorithm {
 public:
@@ -64,6 +65,8 @@ protected:
     void updateBest(Solution candidate) {
         candidate.producedBy = name();
         candidate.timeTaken = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime_).count();
-        if (candidate.score < best_.score) best_ = std::move(candidate);
+        if (candidate.score < best_.score) {
+            best_ = std::move(candidate);
+        }
     }
 };
