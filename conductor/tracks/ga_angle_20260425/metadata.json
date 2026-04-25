@@ -1,0 +1,8 @@
+{
+  "track_id": "ga_angle_20260425",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-04-25T00:00:00Z",
+  "updated_at": "2026-04-25T00:00:00Z",
+  "description": "Implement Continuous Genetic Algorithm (GA Angle) with shared GA base refactor"
+}
