@@ -5,9 +5,12 @@ import { useRef, useEffect, useMemo } from "react";
 import * as THREE from "three";
 import Shelf from "./models/shelf.jsx";
 import warehouseOutlineCsv from "../../data/input/Case0/warehouse.csv?raw";
+import ceilingCsv from "../../data/input/Case0/ceiling.csv?raw";
 
 const WORLD_SCALE = 0.004;
 const FLOOR_THICKNESS = 0.25;
+const CEILING_THICKNESS = 0.2;
+const FLOOR_Y = -2;
 
 function parseOutline(input: string): Array<[number, number]> {
   return input
@@ -21,12 +24,135 @@ function parseOutline(input: string): Array<[number, number]> {
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
 }
 
+function clipAgainstVertical(
+  polygon: THREE.Vector2[],
+  xCut: number,
+  keepRight: boolean,
+): THREE.Vector2[] {
+  if (polygon.length === 0) return [];
+
+  const output: THREE.Vector2[] = [];
+  const inside = (p: THREE.Vector2) => (keepRight ? p.x >= xCut : p.x <= xCut);
+
+  for (let i = 0; i < polygon.length; i += 1) {
+    const current = polygon[i];
+    const previous = polygon[(i + polygon.length - 1) % polygon.length];
+    const currentInside = inside(current);
+    const previousInside = inside(previous);
+
+    if (currentInside !== previousInside) {
+      const dx = current.x - previous.x;
+      const t = Math.abs(dx) < Number.EPSILON ? 0 : (xCut - previous.x) / dx;
+      const y = previous.y + (current.y - previous.y) * t;
+      output.push(new THREE.Vector2(xCut, y));
+    }
+
+    if (currentInside) output.push(current.clone());
+  }
+
+  return output;
+}
+
+function clipBetweenX(
+  polygon: THREE.Vector2[],
+  minX: number,
+  maxX: number,
+): THREE.Vector2[] {
+  return clipAgainstVertical(
+    clipAgainstVertical(polygon, minX, true),
+    maxX,
+    false,
+  );
+}
+
+function edgeKey(a: THREE.Vector2, b: THREE.Vector2): string {
+  const ax = a.x.toFixed(5);
+  const ay = a.y.toFixed(5);
+  const bx = b.x.toFixed(5);
+  const by = b.y.toFixed(5);
+  return ax < bx || (ax === bx && ay <= by)
+    ? `${ax},${ay}|${bx},${by}`
+    : `${bx},${by}|${ax},${ay}`;
+}
+
+function buildWallGeometry(
+  start: THREE.Vector2,
+  end: THREE.Vector2,
+  bottomY: number,
+  topY: number,
+): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+
+  // Notice the negated start.y and end.y to correctly map to the 3D Z-axis
+  const vertices = new Float32Array([
+    start.x,
+    bottomY,
+    -start.y,
+    end.x,
+    bottomY,
+    -end.y,
+    end.x,
+    topY,
+    -end.y,
+    start.x,
+    bottomY,
+    -start.y,
+    end.x,
+    topY,
+    -end.y,
+    start.x,
+    topY,
+    -start.y,
+  ]);
+
+  geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function pointOnSegment(
+  point: THREE.Vector2,
+  segmentStart: THREE.Vector2,
+  segmentEnd: THREE.Vector2,
+  epsilon = 1e-5,
+): boolean {
+  const segment = new THREE.Vector2().subVectors(segmentEnd, segmentStart);
+  const toPoint = new THREE.Vector2().subVectors(point, segmentStart);
+  const cross = segment.x * toPoint.y - segment.y * toPoint.x;
+  if (Math.abs(cross) > epsilon) return false;
+
+  const dot = toPoint.dot(segment);
+  if (dot < -epsilon) return false;
+
+  const segmentLenSq = segment.lengthSq();
+  if (dot - segmentLenSq > epsilon) return false;
+  return true;
+}
+
+function edgeOnOutline(
+  start: THREE.Vector2,
+  end: THREE.Vector2,
+  outline: THREE.Vector2[],
+): boolean {
+  for (let i = 0; i < outline.length; i += 1) {
+    const a = outline[i];
+    const b = outline[(i + 1) % outline.length];
+    if (pointOnSegment(start, a, b) && pointOnSegment(end, a, b)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
 
-  const floorGeometry = useMemo(() => {
+  const sceneGeometry = useMemo(() => {
     const rawPoints = parseOutline(warehouseOutlineCsv);
+    const rawCeilingProfile = parseOutline(ceilingCsv).sort(
+      (a, b) => a[0] - b[0],
+    );
 
     // Fallback to a rectangle if input is not enough to build a polygon.
     const points =
@@ -70,14 +196,132 @@ export default function App() {
     geometry.rotateX(-Math.PI / 2);
     geometry.translate(0, -FLOOR_THICKNESS / 2, 0);
 
-    return geometry;
+    const ceilingProfile =
+      rawCeilingProfile.length > 0
+        ? rawCeilingProfile
+        : ([[0, 3000]] as Array<[number, number]>);
+
+    const maxRawX = Math.max(...points.map(([x]) => x));
+    const minRawX = Math.min(...points.map(([x]) => x)); // Add this line
+    const ceilingParts: Array<{ geometry: THREE.ExtrudeGeometry; y: number }> =
+      [];
+    const walls: THREE.BufferGeometry[] = [];
+    const perimeterWalls = new Map<
+      string,
+      { start: THREE.Vector2; end: THREE.Vector2; topY: number }
+    >();
+
+    for (let i = 0; i < ceilingProfile.length; i += 1) {
+      let [startRawX, rawHeight] = ceilingProfile[i];
+
+      // Extend the first ceiling section to the very edge of the building
+      if (i === 0 && minRawX < startRawX) {
+        startRawX = minRawX;
+      }
+
+      const endRawX =
+        i < ceilingProfile.length - 1 ? ceilingProfile[i + 1][0] : maxRawX;
+
+      if (endRawX <= startRawX) continue;
+
+      const startX = startRawX * WORLD_SCALE - centerX;
+      const endX = endRawX * WORLD_SCALE - centerX;
+      const clippedPolygon = clipBetweenX(centeredPoints, startX, endX);
+      if (clippedPolygon.length < 3) continue;
+
+      const ceilingPartGeometry = new THREE.ExtrudeGeometry(
+        new THREE.Shape(clippedPolygon),
+        {
+          depth: CEILING_THICKNESS,
+          bevelEnabled: false,
+        },
+      );
+
+      if (i < ceilingProfile.length - 1) {
+        const nextRawHeight = ceilingProfile[i + 1][1];
+        const currentHeightY = rawHeight * WORLD_SCALE - CEILING_THICKNESS / 2;
+        const nextHeightY = nextRawHeight * WORLD_SCALE - CEILING_THICKNESS / 2;
+
+        // Only build a connecting wall if there is a height difference
+        if (Math.abs(currentHeightY - nextHeightY) > 1e-5) {
+          for (let j = 0; j < clippedPolygon.length; j += 1) {
+            const start = clippedPolygon[j];
+            const end = clippedPolygon[(j + 1) % clippedPolygon.length];
+
+            // Skip zero-length segments
+            if (start.distanceToSquared(end) < 1e-10) continue;
+
+            // Check if this edge lies exactly on the boundary 'cut' line between the two sections
+            if (
+              Math.abs(start.x - endX) < 1e-5 &&
+              Math.abs(end.x - endX) < 1e-5
+            ) {
+              const bottomY = Math.min(currentHeightY, nextHeightY);
+              const topY = Math.max(currentHeightY, nextHeightY);
+
+              // Push the connecting vertical plane to the walls array
+              walls.push(buildWallGeometry(start, end, bottomY, topY));
+            }
+          }
+        }
+      }
+
+      ceilingPartGeometry.rotateX(-Math.PI / 2);
+      ceilingPartGeometry.translate(0, -CEILING_THICKNESS / 2, 0);
+
+      ceilingParts.push({
+        geometry: ceilingPartGeometry,
+        y: rawHeight * WORLD_SCALE,
+      });
+
+      for (let j = 0; j < clippedPolygon.length; j += 1) {
+        const start = clippedPolygon[j];
+        const end = clippedPolygon[(j + 1) % clippedPolygon.length];
+        if (start.distanceToSquared(end) < 1e-10) continue;
+        if (!edgeOnOutline(start, end, centeredPoints)) continue;
+
+        const key = edgeKey(start, end);
+        const topY = rawHeight * WORLD_SCALE - CEILING_THICKNESS / 2;
+        const existing = perimeterWalls.get(key);
+        if (existing) {
+          if (topY > existing.topY) {
+            existing.topY = topY;
+          }
+        } else {
+          perimeterWalls.set(key, {
+            start: start.clone(),
+            end: end.clone(),
+            topY,
+          });
+        }
+      }
+    }
+
+    const floorTopY = FLOOR_THICKNESS / 2;
+
+    for (const { start, end, topY } of perimeterWalls.values()) {
+      if (topY <= floorTopY + 1e-5) continue;
+      walls.push(buildWallGeometry(start, end, floorTopY, topY));
+    }
+
+    return {
+      floor: geometry,
+      ceilingParts,
+      walls,
+    };
   }, []);
 
   useEffect(() => {
     return () => {
-      floorGeometry.dispose();
+      sceneGeometry.floor.dispose();
+      for (const part of sceneGeometry.ceilingParts) {
+        part.geometry.dispose();
+      }
+      for (const wall of sceneGeometry.walls) {
+        wall.dispose();
+      }
     };
-  }, [floorGeometry]);
+  }, [sceneGeometry]);
 
   useEffect(() => {
     if (lightRef.current && meshRef.current) {
@@ -92,10 +336,35 @@ export default function App() {
         <color attach="background" args={["#bbbbbb"]} />
         <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
         <ambientLight intensity={3} />
-        <mesh position={[0, -2, 0]} ref={meshRef} geometry={floorGeometry}>
+        <mesh
+          position={[0, FLOOR_Y, 0]}
+          ref={meshRef}
+          geometry={sceneGeometry.floor}
+        >
           <meshStandardMaterial color="#a3a3a3" />
         </mesh>
-        <Shelf position={[0, -2, 0]} scale={0.05} />
+
+        {sceneGeometry.ceilingParts.map((part, index) => (
+          <mesh
+            key={`ceiling-${index}`}
+            position={[0, FLOOR_Y + part.y, 0]}
+            geometry={part.geometry}
+          >
+            <meshStandardMaterial color="#d6d6d6" side={THREE.FrontSide} />
+          </mesh>
+        ))}
+
+        {sceneGeometry.walls.map((wall, index) => (
+          <mesh
+            key={`wall-${index}`}
+            position={[0, FLOOR_Y, 0]}
+            geometry={wall}
+          >
+            <meshStandardMaterial color="#c4c4c4" side={THREE.DoubleSide} />
+          </mesh>
+        ))}
+
+        <Shelf position={[0, FLOOR_Y, 0]} scale={0.05} />
         <CameraControls makeDefault />
       </Canvas>
     </div>
