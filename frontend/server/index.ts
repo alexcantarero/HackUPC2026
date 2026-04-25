@@ -181,22 +181,46 @@ app.post(
         durationMs: Date.now() - startedAt,
       };
 
-      // Extract Output folder from stdout
+      // Discovery logic: Try regex first, fallback to newest folder in data/output
+      let absoluteFolderPath = "";
       const folderMatch = runResult.stdout.match(/Output folder:\s*(.+)/);
+      
       if (folderMatch && folderMatch[1]) {
         const rawFolderPath = folderMatch[1].trim();
-        const absoluteFolderPath = path.resolve(backendDir, rawFolderPath);
-        console.log(`[API] Parsing output folder: ${absoluteFolderPath}`);
-        
+        absoluteFolderPath = path.resolve(backendDir, rawFolderPath);
+        console.log(`[API] Found output folder via regex: ${absoluteFolderPath}`);
+      } else {
+        console.log("[API] No output folder found in stdout. Checking data/output for newest folder...");
+        try {
+          const outputDir = path.join(workspaceRoot, "data", "output");
+          const entries = await fs.readdir(outputDir, { withFileTypes: true });
+          const folders = entries
+            .filter(e => e.isDirectory())
+            .map(e => ({ name: e.name, path: path.join(outputDir, e.name) }));
+          
+          if (folders.length > 0) {
+            // Sort by creation/modification time
+            const foldersWithTime = await Promise.all(folders.map(async f => {
+              const stat = await fs.stat(f.path);
+              return { ...f, mtime: stat.mtimeMs };
+            }));
+            foldersWithTime.sort((a, b) => b.mtime - a.mtime);
+            absoluteFolderPath = foldersWithTime[0].path;
+            console.log(`[API] Falling back to newest folder: ${absoluteFolderPath}`);
+          }
+        } catch (err) {
+          console.error("[API] Fallback discovery failed:", err);
+        }
+      }
+
+      if (absoluteFolderPath) {
         try {
           const filesInFolder = await fs.readdir(absoluteFolderPath);
-          console.log(`[API] Files found: ${filesInFolder.join(", ")}`);
           const algorithmResults = [];
 
           for (const file of filesInFolder) {
             if (file.endsWith(".json")) {
               const filePath = path.join(absoluteFolderPath, file);
-              console.log(`[API] Reading JSON: ${filePath}`);
               const jsonContent = await fs.readFile(filePath, "utf8");
               try {
                 const parsedJson = JSON.parse(jsonContent);
@@ -228,8 +252,6 @@ app.post(
         } catch (err) {
           console.error(`[API] Failed to read output folder: ${absoluteFolderPath}`, err);
         }
-      } else {
-        console.log("[API] No output folder found in stdout.");
       }
 
       res.status(runResult.exitCode === 0 ? 200 : 500).json(payload);

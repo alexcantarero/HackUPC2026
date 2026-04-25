@@ -705,12 +705,11 @@ export default function App() {
             className="solver-comparison"
             aria-label="Algorithm run summaries"
           >
-            {comparisonResults.map((result) => (
+            {comparisonResults.map((result, idx) => (
               <article
-                key={result.algorithm}
+                key={`${result.algorithm}-${idx}`}
                 className="solver-comparison-card"
-              >
-                <div className="solver-comparison-card-header">
+              >                <div className="solver-comparison-card-header">
                   <div>
                     <span className="solver-comparison-badge">
                       {result.algorithm}
