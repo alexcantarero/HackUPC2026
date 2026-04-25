@@ -18,7 +18,7 @@ GreedySolver::GreedySolver(const StaticState& info, uint64_t seed)
                   return (ta.width * ta.depth) > (tb.width * tb.depth);
               });
 
-    // Precompute 13 rotation angles: 0, 15, ..., 180 degrees
+    // Precompute 13 rotation angles: 0°, 15°, ..., 180°
     for (int i = 0; i < 13; ++i)
         rotations_[i] = static_cast<double>(i) * 15.0;
 }
@@ -42,19 +42,15 @@ void GreedySolver::fillPass() {
         if (p.y < min_y) min_y = p.y;
     }
 
-    // Small epsilon to keep trial positions strictly inside the polygon
-    // (boundary points may fail the ray-casting inside-polygon test).
-    constexpr double EPS = 1e-3;
-
     CandidateSet candidates;
-    candidates.insert({min_x + EPS, min_y + EPS});
+    candidates.insert({min_x, min_y});
 
     // Also seed with obstacle corners (potential tight-packing spots)
     for (const auto& obs : info_.obstacles) {
-        candidates.insert({obs.x + EPS,             obs.y + EPS});
-        candidates.insert({obs.x + obs.width + EPS, obs.y + EPS});
-        candidates.insert({obs.x + EPS,             obs.y + obs.depth + EPS});
-        candidates.insert({obs.x + obs.width + EPS, obs.y + obs.depth + EPS});
+        candidates.insert({obs.x,             obs.y});
+        candidates.insert({obs.x + obs.width, obs.y});
+        candidates.insert({obs.x,             obs.y + obs.depth});
+        candidates.insert({obs.x + obs.width, obs.y + obs.depth});
     }
 
     std::array<double, 13> rots = rotations_;

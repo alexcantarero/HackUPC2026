@@ -3,6 +3,7 @@
 #include "../core/score.hpp"
 #include <array>
 #include <set>
+#include <cmath>
 
 /**
  * @brief Constructive BLF (Bottom-Left Fill) greedy solver.
@@ -31,12 +32,17 @@ public:
 private:
     double           wh_area_;
     std::vector<int> sorted_type_ids_; ///< indices into info_.bayTypes, desc by area
-    std::array<double, 13> rotations_; ///< 0, 15, 30, ..., 180 degrees
+    static constexpr size_t NUM_ROTATIONS = 13;
+    static constexpr double ROTATION_STEP_DEG = 15.0;
+    std::array<double, NUM_ROTATIONS> rotations_; ///< 0, 15, 30, ..., 180 degrees
 
     struct PointCmp {
         bool operator()(const Point2D& a, const Point2D& b) const {
-            if (a.y != b.y) return a.y < b.y;
-            return a.x < b.x;
+            auto quantize = [](double v) { return static_cast<long long>(std::round(v * 1000.0)); };
+            long long q_ay = quantize(a.y);
+            long long q_by = quantize(b.y);
+            if (q_ay != q_by) return q_ay < q_by;
+            return quantize(a.x) < quantize(b.x);
         }
     };
     using CandidateSet = std::set<Point2D, PointCmp>;

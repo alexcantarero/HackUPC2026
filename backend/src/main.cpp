@@ -15,9 +15,11 @@
 #include <random>
 
 // ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
-// #include "solvers/greedy.hpp"
-// #include "solvers/sa.hpp"
+#include "solvers/greedy.hpp"
+#include "solvers/sa.hpp"
 // #include "solvers/jostle.hpp"
+#include "solvers/ga_angle.hpp"
+#include "solvers/ga_ortho.hpp"
 // #include "solvers/vns.hpp"
 
 static constexpr int    NUM_THREADS   = 6;
@@ -52,10 +54,10 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
     uint64_t seed)
 {
     // Uncomment each line as the solver is implemented:
-    // if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
+    if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
-    // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
+    if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
     if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, -1); // Run until time limit
     // if (algoName == "vns")      return std::make_unique<Vns>(info, seed);
 

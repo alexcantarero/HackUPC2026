@@ -4,14 +4,15 @@ TARGET   = bin/solver
 SRCDIR   = src
 
 SRCS = $(SRCDIR)/main.cpp \
-       $(SRCDIR)/core/collision.cpp \
-       $(SRCDIR)/core/score.cpp \
-       $(SRCDIR)/io/parser.cpp \
-       $(SRCDIR)/solvers/greedy.cpp \
-       $(SRCDIR)/solvers/genetic_algorithm.cpp \
-       $(SRCDIR)/solvers/ga_angle.cpp \
-       $(SRCDIR)/solvers/ga_ortho.cpp \
-       $(SRCDIR)/solvers/jostle_algorithm.cpp
+        $(SRCDIR)/core/collision.cpp \
+        $(SRCDIR)/core/score.cpp \
+        $(SRCDIR)/io/parser.cpp \
+        $(SRCDIR)/solvers/greedy.cpp \
+        $(SRCDIR)/solvers/genetic_algorithm.cpp \
+        $(SRCDIR)/solvers/ga_angle.cpp \
+        $(SRCDIR)/solvers/ga_ortho.cpp \
+        $(SRCDIR)/solvers/jostle_algorithm.cpp \
+        $(SRCDIR)/solvers/sa.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 
@@ -32,30 +33,37 @@ run: $(TARGET)
 test_collision: tests/test_collision.cpp \
                 $(SRCDIR)/core/collision.cpp \
                 $(SRCDIR)/io/parser.cpp
-TEST_SRCS = tests/test_collision.cpp \
-            $(SRCDIR)/core/collision.cpp \
-            $(SRCDIR)/io/parser.cpp
-
-TEST_GA_SRCS = tests/test_ga_ortho.cpp \
-               $(SRCDIR)/solvers/genetic_algorithm.cpp \
-               $(SRCDIR)/solvers/ga_ortho.cpp \
-               $(SRCDIR)/core/collision.cpp
-
-TEST_GA_ANGLE_SRCS = tests/test_ga_angle.cpp \
-                     $(SRCDIR)/solvers/genetic_algorithm.cpp \
-                     $(SRCDIR)/solvers/ga_angle.cpp \
-                     $(SRCDIR)/core/collision.cpp
-
-test: $(TEST_SRCS) $(TEST_GA_SRCS) $(TEST_GA_ANGLE_SRCS)
 	mkdir -p bin
-	$(CXX) $(CXXFLAGS) -o bin/test_collision $(TEST_SRCS)
+	$(CXX) $(CXXFLAGS) -o bin/test_collision $^
 	./bin/test_collision
-	$(CXX) $(CXXFLAGS) -o bin/test_ga_ortho $(TEST_GA_SRCS)
-	./bin/test_ga_ortho
-	$(CXX) $(CXXFLAGS) -o bin/test_ga_angle $(TEST_GA_ANGLE_SRCS)
-	./bin/test_ga_angle
+
+test_score: tests/test_score.cpp \
+            $(SRCDIR)/core/score.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_score $^
+	./bin/test_score
+
+test_greedy: tests/test_greedy.cpp \
+              $(SRCDIR)/core/collision.cpp \
+              $(SRCDIR)/core/score.cpp \
+              $(SRCDIR)/solvers/greedy.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_greedy $^
+	./bin/test_greedy
+
+test_sa: tests/test_sa.cpp \
+          $(SRCDIR)/core/collision.cpp \
+          $(SRCDIR)/core/score.cpp \
+          $(SRCDIR)/solvers/greedy.cpp \
+          $(SRCDIR)/solvers/sa.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_sa $^
+	./bin/test_sa
+
+test: test_collision test_score test_greedy test_sa
 
 clean:
-	rm -f $(OBJS) bin/solver bin/test_collision bin/test_ga_ortho bin/test_ga_angle
+	rm -f $(OBJS) \
+	      bin/solver bin/test_collision bin/test_score bin/test_greedy bin/test_sa
 
-.PHONY: all run test test_collision test_score test_greedy clean
+.PHONY: all run test test_collision test_score test_greedy test_sa clean
