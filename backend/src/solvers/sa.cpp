@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include "../core/score.hpp"
 #include <limits>
 
 // ── Constructor ───────────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
 // ── State management ────────────────────────────────────────────────────────
 
 double SimulatedAnnealing::currentScore() const {
-    return sum_ratio_ * sum_ratio_ - sum_area_ / wh_area_;
+    return computeScore(current_bays_, info_, wh_area_);
 }
 
 void SimulatedAnnealing::initFromBays(const std::vector<Bay>& bays) {
@@ -126,8 +127,8 @@ double SimulatedAnnealing::calibrateT0() {
 
         double new_sum_r = sum_ratio_ - bayRatio(b.typeId) + nt.price / nt.nLoads;
         double new_sum_a = sum_area_  - bayArea(b.typeId)  + nt.width * nt.depth;
-        double delta = std::fabs(new_sum_r * new_sum_r - new_sum_a / wh_area_
-                                 - currentScore());
+        double new_s = std::pow(new_sum_r, 2.0 - new_sum_a / wh_area_);
+        double delta = std::fabs(new_s - currentScore());
         sum_delta += delta;
         ++count;
     }
@@ -200,7 +201,7 @@ bool SimulatedAnnealing::moveReplaceType(double T) {
     // Early Metropolis check (skip expensive SAT if thermodynamically rejected)
     double new_sum_r  = sum_ratio_ - old_ratio + new_ratio;
     double new_sum_a  = sum_area_  - old_area  + new_area;
-    double new_score  = new_sum_r * new_sum_r - new_sum_a / wh_area_;
+    double new_score  = std::pow(new_sum_r, 2.0 - new_sum_a / wh_area_);
     double delta      = new_score - currentScore();
 
     if (delta >= 0.0) {
