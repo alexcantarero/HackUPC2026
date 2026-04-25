@@ -37,15 +37,18 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
         return decoded;
     }
 
-    double min_x = std::numeric_limits<double>::max();
-    double min_y = std::numeric_limits<double>::max();
-    for (const auto& point : info_.warehousePolygon) {
-        min_x = std::min(min_x, point.x);
-        min_y = std::min(min_y, point.y);
-    }
-
     std::vector<Point2D> anchors;
-    anchors.push_back({min_x, min_y});
+    // Seed with all warehouse corners (guaranteed to be inside/on the boundary)
+    for (const auto& point : info_.warehousePolygon) {
+        anchors.push_back(point);
+    }
+    // Seed with all obstacle corners
+    for (const auto& obs : info_.obstacles) {
+        anchors.push_back({obs.x, obs.y});
+        anchors.push_back({obs.x + obs.width, obs.y});
+        anchors.push_back({obs.x, obs.y + obs.depth});
+        anchors.push_back({obs.x + obs.width, obs.y + obs.depth});
+    }
 
     SpatialGrid decode_grid(defaultCellSize());
     for (const auto& bay_id : chromosome) {

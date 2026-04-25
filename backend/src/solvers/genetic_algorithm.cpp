@@ -4,6 +4,7 @@
 #include <limits>
 #include <random>
 #include <unordered_set>
+#include "../core/score.hpp" // Add this to the top of genetic_algorithm.cpp
 
 namespace {
 
@@ -120,11 +121,25 @@ void GeneticAlgorithm::run(std::atomic<bool>& stop_flag) {
 
 GeneticAlgorithm::Chromosome GeneticAlgorithm::randomChromosome() {
     Chromosome chromosome;
-    chromosome.reserve(info_.bayTypes.size());
-    for (const auto& bay_type : info_.bayTypes) {
-        chromosome.push_back(bay_type.id);
+    
+    // 1. Find the smallest bay area
+    double min_area = std::numeric_limits<double>::max();
+    for (const auto& bt : info_.bayTypes) {
+        min_area = std::min(min_area, bt.width * bt.depth);
     }
-    std::shuffle(chromosome.begin(), chromosome.end(), rng_);
+    
+    // 2. Calculate dynamic upper bound
+    double wh_area = polygonArea(info_.warehousePolygon);
+    int max_bays = static_cast<int>(std::ceil(wh_area / min_area));
+    if (max_bays <= 0) max_bays = 1; // Safety fallback
+
+    // 3. Populate chromosome
+    chromosome.reserve(max_bays);
+    std::uniform_int_distribution<int> dist(0, static_cast<int>(info_.bayTypes.size()) - 1);
+    for (int i = 0; i < max_bays; ++i) {
+        chromosome.push_back(info_.bayTypes[dist(rng_)].id);
+    }
+    
     return chromosome;
 }
 
@@ -204,24 +219,8 @@ const BayType* GeneticAlgorithm::getBayTypeById(int type_id) const {
 }
 
 double GeneticAlgorithm::evaluateQ(const Solution& solution) const {
-    double value_term = 0.0;
-    double used_area = 0.0;
-
-    for (const auto& bay : solution.bays) {
-        const BayType* bay_type = getBayTypeById(bay.typeId);
-        if (bay_type == nullptr || bay_type->nLoads <= 0.0) {
-            continue;
-        }
-        value_term += bay_type->price / bay_type->nLoads;
-        used_area += bay_type->width * bay_type->depth;
-    }
-
-    const double warehouse_area = polygonArea(info_.warehousePolygon);
-    if (warehouse_area <= 0.0) {
-        return std::numeric_limits<double>::max();
-    }
-
-    return value_term * value_term - (used_area / warehouse_area);
+    double wh_area = polygonArea(info_.warehousePolygon);
+    return computeScore(solution.bays, info_, wh_area);
 }
 
 double GeneticAlgorithm::polygonArea(const std::vector<Point2D>& polygon) {

@@ -47,7 +47,7 @@ TEST_GA_ANGLE_SRCS = tests/test_ga_angle.cpp \
 
 test: $(TEST_SRCS) $(TEST_GA_SRCS) $(TEST_GA_ANGLE_SRCS)
 	mkdir -p bin
-       $(CXX) $(CXXFLAGS) -o bin/test_collision $(TEST_SRCS)
+	$(CXX) $(CXXFLAGS) -o bin/test_collision $(TEST_SRCS)
 	./bin/test_collision
 	$(CXX) $(CXXFLAGS) -o bin/test_ga_ortho $(TEST_GA_SRCS)
 	./bin/test_ga_ortho

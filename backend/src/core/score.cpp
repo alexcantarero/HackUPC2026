@@ -15,17 +15,23 @@ double warehouseArea(const std::vector<Point2D>& polygon) {
 double computeScore(const std::vector<Bay>& bays,
                     const StaticState& info,
                     double wh_area) {
+    if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
+
     double sum_ratio = 0.0;
     double sum_area  = 0.0;
+    
     for (const auto& bay : bays) {
         for (const auto& bt : info.bayTypes) {
             if (bt.id == bay.typeId) {
-                sum_ratio += bt.price / bt.nLoads;
-                sum_area  += bt.width * bt.depth;
+                sum_ratio += (bt.price / bt.nLoads); // Summing the ratios
+                sum_area  += (bt.width * bt.depth);
                 break;
             }
         }
     }
-    if (wh_area <= 0.0) return 0.0;
-    return sum_ratio * sum_ratio - sum_area / wh_area;
+    
+    // As sum_area approaches wh_area, exponent approaches 1.0
+    double exponent = 2.0 - (sum_area / wh_area); 
+    
+    return std::pow(sum_ratio, exponent);
 }

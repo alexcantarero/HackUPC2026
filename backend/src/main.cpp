@@ -3,6 +3,7 @@
 #include "solvers/algorithm.hpp"
 #include "solvers/ga_angle.hpp"
 #include "solvers/ga_ortho.hpp"
+#include <csignal> // Add to top of main.cpp
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -27,7 +28,7 @@ struct Config {
     std::string caseDir  = "../data/input/Case0";
     std::string mode     = "parallel";   // "parallel" | "portfolio"
     std::string algo     = "greedy";     // used in parallel mode
-    std::string outCsv   = "solution.csv";
+    std::string outCsv   = "../../data/output/solution_" + std::to_string(std::time(nullptr)) + "_" + algo + ".csv";
 };
 
 static Config parseArgs(int argc, char* argv[]) {
@@ -59,6 +60,13 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
 
     std::cerr << "[warn] Unknown algorithm '" << algoName << "'. No solver created.\n";
     return nullptr;
+}
+
+std::atomic<bool> early_exit_signal{false};
+
+void signalHandler(int /*signum*/) {
+    std::cout << "\n[INFO] Early exit signal received. Wrapping up threads...\n";
+    early_exit_signal = true;
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -93,7 +101,8 @@ int main(int argc, char* argv[]) {
         // Portfolio: one thread per algorithm
         std::cout << "Mode: portfolio\n";
         const std::vector<std::string> portfolio = {
-            "greedy", "ga_ortho", "ga_angle", "sa", "jostle", "vns"
+        //    "greedy", "ga_ortho", "ga_angle", "sa", "jostle", "vns"
+              "ga_ortho", "ga_angle"
         };
         for (int i = 0; i < (int)portfolio.size(); ++i) {
             uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
@@ -108,18 +117,39 @@ int main(int argc, char* argv[]) {
     }
 
     // 3. Spawn threads
+    std::signal(SIGINT, signalHandler); // Catch Ctrl+C
     std::atomic<bool> stop_flag{false};
+    std::atomic<int> active_threads{0};
     std::vector<std::thread> threads;
     threads.reserve(algos.size());
 
-    for (auto& algo : algos)
-        threads.emplace_back([&algo, &stop_flag] { algo->run(stop_flag); });
+    for (auto& algo : algos) {
+        active_threads++;
+        threads.emplace_back([&algo, &stop_flag, &active_threads] { 
+            algo->run(stop_flag); 
+            active_threads--; // Decrement when thread voluntarily finishes
+        });
+    }
 
-    // 4. Wait for time limit, then signal stop
-    std::this_thread::sleep_for(
-        std::chrono::duration<double>(TIME_LIMIT_S));
+    // 4. Polling loop: Wait for time limit, Ctrl+C, or natural completion
+    auto start_time = std::chrono::steady_clock::now();
+    while (true) {
+        auto now = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsed = now - start_time;
+        
+        if (elapsed.count() >= TIME_LIMIT_S) {
+            std::cout << "[INFO] 29.0s Hard limit reached.\n";
+            break;
+        }
+        if (early_exit_signal) break;     // User pressed Ctrl+C
+        if (active_threads == 0) break;   // All algos finished early on their own
+
+        // Sleep for 50ms then check again (prevents maxing out the main thread's CPU)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    // Signal all algorithms to break their while loops
     stop_flag = true;
-
     for (auto& t : threads) t.join();
 
     // 5. Pick the best solution across all threads

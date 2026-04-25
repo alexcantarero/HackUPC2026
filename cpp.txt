@@ -1,0 +1,2719 @@
+============================================================
+File: backend/src/core/collision.cpp
+============================================================
+
+#include "collision.hpp"
+#include <cmath>
+#include <algorithm>
+#include <iostream>
+#include <limits>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+// Helper to convert degrees to radians
+static double degToRad(double degrees) {
+    return degrees * M_PI / 180.0;
+}
+
+static bool pointOnSegment(const Point2D& p, const Point2D& a, const Point2D& b) {
+    constexpr double kEps = 1e-5;
+
+    const double cross = (p.y - a.y) * (b.x - a.x) - (p.x - a.x) * (b.y - a.y);
+    if (std::abs(cross) > kEps) {
+        return false;
+    }
+
+    const double dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y);
+    if (dot < -kEps) {
+        return false;
+    }
+
+    const double squared_length = (b.x - a.x) * (b.x - a.x) +
+                                  (b.y - a.y) * (b.y - a.y);
+    if (dot - squared_length > kEps) {
+        return false;
+    }
+
+    return true;
+}
+
+const BayType* CollisionChecker::getBayType(int typeId, const StaticState* staticInfo) {
+    for (const auto& bt : staticInfo->bayTypes) {
+        if (bt.id == typeId) return &bt;
+    }
+    return nullptr;
+}
+
+OBB CollisionChecker::buildOBBFromLocalCorners(const Point2D local[4], double pivotX, double pivotY,
+                                                double cosA, double sinA) {
+    OBB obb;
+    double cx = 0.0, cy = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        obb.corners[i].x = pivotX + (local[i].x * cosA - local[i].y * sinA);
+        obb.corners[i].y = pivotY + (local[i].x * sinA + local[i].y * cosA);
+        cx += obb.corners[i].x;
+        cy += obb.corners[i].y;
+    }
+    obb.center = {cx / 4.0, cy / 4.0};
+    return obb;
+}
+
+OBB CollisionChecker::createSolidOBB(const Bay& bay, const StaticState* staticInfo) {
+    const BayType* type = getBayType(bay.typeId, staticInfo);
+    if (!type) {
+        OBB obb;
+        for (int i = 0; i < 4; ++i) obb.corners[i] = {bay.x, bay.y};
+        obb.center = {bay.x, bay.y};
+        return obb;
+    }
+
+    const double w    = type->width;
+    const double d    = type->depth;
+    const double cosA = std::cos(degToRad(bay.rotation));
+    const double sinA = std::sin(degToRad(bay.rotation));
+
+    // Solid occupies local y = [0, depth]
+    Point2D local[4] = {{0, 0}, {w, 0}, {w, d}, {0, d}};
+    return buildOBBFromLocalCorners(local, bay.x, bay.y, cosA, sinA);
+}
+
+OBB CollisionChecker::createGapOBB(const Bay& bay, const StaticState* staticInfo) {
+    const BayType* type = getBayType(bay.typeId, staticInfo);
+    if (!type) {
+        OBB obb;
+        for (int i = 0; i < 4; ++i) obb.corners[i] = {bay.x, bay.y};
+        obb.center = {bay.x, bay.y};
+        return obb;
+    }
+
+    const double w    = type->width;
+    const double d    = type->depth;
+    const double g    = type->gap;
+    const double cosA = std::cos(degToRad(bay.rotation));
+    const double sinA = std::sin(degToRad(bay.rotation));
+
+    // Gap occupies local y = [depth, depth + gap] — the aisle in front of the solid
+    Point2D local[4] = {{0, d}, {w, d}, {w, d + g}, {0, d + g}};
+    return buildOBBFromLocalCorners(local, bay.x, bay.y, cosA, sinA);
+}
+
+OBB CollisionChecker::createObstacleOBB(const Obstacle& obs) {
+    OBB obb;
+    obb.corners[0] = {obs.x,             obs.y};
+    obb.corners[1] = {obs.x + obs.width, obs.y};
+    // Top-Right
+    obb.corners[2] = {obs.x + obs.width, obs.y + obs.depth};
+    // Top-Left
+    obb.corners[3] = {obs.x, obs.y + obs.depth};
+
+    obb.center.x = obs.x + obs.width / 2.0;
+    obb.center.y = obs.y + obs.depth / 2.0;
+
+    return obb;
+}
+
+bool CollisionChecker::isValidPlacement(
+    const Bay& candidate,
+    const std::vector<Bay>& placed,
+    const StaticState* staticInfo,
+    const SpatialGrid* grid)
+{
+    const BayType* type = getBayType(candidate.typeId, staticInfo);
+    if (!type) return false;
+
+    const OBB solidOBB = createSolidOBB(candidate, staticInfo);
+    const OBB gapOBB   = createGapOBB(candidate, staticInfo);
+
+    // 1. Solid and gap must be fully inside the warehouse polygon
+    if (!isOBBInsidePolygon(solidOBB, staticInfo->warehousePolygon)) return false;
+    if (!isOBBInsidePolygon(gapOBB, staticInfo->warehousePolygon)) return false;
+
+    // 2. Ceiling constraint on solid and gap.
+    // The gap is the forklift aisle — if the ceiling is too low there, the bay
+    // is inaccessible even if the solid itself fits.
+    if (!checkCeiling(solidOBB, type->height, staticInfo->ceilingRegions)) return false;
+    if (!checkCeiling(gapOBB,   type->height, staticInfo->ceilingRegions)) return false;
+
+    // 3 & 4. Solid and gap must not overlap any obstacle
+    for (const auto& obs : staticInfo->obstacles) {
+        OBB obsOBB = createObstacleOBB(obs);
+        if (checkOBBvsOBB(solidOBB, obsOBB)) return false;
+        if (checkOBBvsOBB(gapOBB,   obsOBB)) return false;
+    }
+
+    // 5, 6, 7. Inter-bay collision checks (gap vs gap is intentionally skipped).
+    // Broad-phase: query grid with both solid and gap OBBs to get nearby candidates,
+    // then narrow-phase SAT only against those. Falls back to O(N) without a grid.
+    if (grid) {
+        auto solidCands = grid->getPotentialBayCollisions(solidOBB);
+        auto gapCands   = grid->getPotentialBayCollisions(gapOBB);
+
+        // Union both candidate sets (grid is keyed on solid OBBs, querying with both
+        // OBBs ensures we catch: other-solid-near-our-solid and other-solid-near-our-gap)
+        std::unordered_set<int> candidates(solidCands.begin(), solidCands.end());
+        candidates.insert(gapCands.begin(), gapCands.end());
+
+        for (int idx : candidates) {
+            const OBB otherSolid = createSolidOBB(placed[idx], staticInfo);
+            const OBB otherGap   = createGapOBB(placed[idx], staticInfo);
+
+            if (checkOBBvsOBB(solidOBB, otherSolid)) return false; // solid vs solid
+            if (checkOBBvsOBB(solidOBB, otherGap))   return false; // solid vs gap
+            if (checkOBBvsOBB(gapOBB,   otherSolid)) return false; // gap vs solid
+        }
+    } else {
+        for (const auto& other : placed) {
+            const OBB otherSolid = createSolidOBB(other, staticInfo);
+            const OBB otherGap   = createGapOBB(other, staticInfo);
+
+            if (checkOBBvsOBB(solidOBB, otherSolid)) return false; // solid vs solid
+            if (checkOBBvsOBB(solidOBB, otherGap))   return false; // solid vs gap
+            if (checkOBBvsOBB(gapOBB,   otherSolid)) return false; // gap vs solid
+        }
+    }
+
+    return true;
+}
+
+double CollisionChecker::dotProduct(const Point2D& a, const Point2D& b) {
+    return a.x * b.x + a.y * b.y;
+}
+
+void CollisionChecker::projectOBB(const OBB& obb, const Point2D& axis, double& min, double& max) {
+    min = dotProduct(obb.corners[0], axis);
+    max = min;
+    for (int i = 1; i < 4; ++i) {
+        double p = dotProduct(obb.corners[i], axis);
+        if (p < min) min = p;
+        if (p > max) max = p;
+    }
+}
+
+bool CollisionChecker::overlap(double minA, double maxA, double minB, double maxB) {
+    // Strict: touching edges (minA == maxB) are NOT considered overlapping.
+    // The problem spec allows bays to share boundaries.
+    // We use a small epsilon to account for floating-point inaccuracies.
+    const double EPSILON = 1e-5;
+    return !(minA >= maxB - EPSILON || maxA <= minB + EPSILON);
+}
+
+bool CollisionChecker::checkOBBvsOBB(const OBB& a, const OBB& b) {
+    const OBB* boxes[2] = { &a, &b };
+    
+    for (int i = 0; i < 2; ++i) {
+        const OBB* box = boxes[i];
+        for (int j = 0; j < 2; ++j) {
+            int corner1 = j;
+            int corner2 = (j + 1) % 4;
+
+            Point2D edge = { box->corners[corner2].x - box->corners[corner1].x,
+                             box->corners[corner2].y - box->corners[corner1].y };
+
+            Point2D axis = { -edge.y, edge.x };
+
+            double minA, maxA, minB, maxB;
+            projectOBB(a, axis, minA, maxA);
+            projectOBB(b, axis, minB, maxB);
+
+            if (!overlap(minA, maxA, minB, maxB)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+
+bool CollisionChecker::isPointInsidePolygon(const Point2D& p, const std::vector<Point2D>& polygon) {
+    for (size_t i = 0; i < polygon.size(); ++i) {
+        const size_t j = (i + 1) % polygon.size();
+        if (pointOnSegment(p, polygon[i], polygon[j])) {
+            return true;
+        }
+    }
+
+    bool inside = false;
+    for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+        if (((polygon[i].y > p.y) != (polygon[j].y > p.y)) &&
+            (p.x < (polygon[j].x - polygon[i].x) * (p.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+static bool ccw(const Point2D& A, const Point2D& B, const Point2D& C) {
+    return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
+}
+
+bool CollisionChecker::segmentsIntersect(const Point2D& p1, const Point2D& p2, const Point2D& p3, const Point2D& p4) {
+    return ccw(p1, p3, p4) != ccw(p2, p3, p4) && ccw(p1, p2, p3) != ccw(p1, p2, p4);
+}
+
+bool CollisionChecker::isOBBInsidePolygon(const OBB& obb, const std::vector<Point2D>& polygon) {
+    if (polygon.size() < 3) return false;
+
+    for (int i = 0; i < 4; ++i) {
+        if (!isPointInsidePolygon(obb.corners[i], polygon)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CollisionChecker::checkCeiling(const OBB& obb, double bayHeight, const std::vector<CeilingRegion>& ceilingRegions) {
+    if (ceilingRegions.empty()) return true;
+
+    double minX = obb.corners[0].x;
+    double maxX = obb.corners[0].x;
+    for (int i = 1; i < 4; ++i) {
+        if (obb.corners[i].x < minX) minX = obb.corners[i].x;
+        if (obb.corners[i].x > maxX) maxX = obb.corners[i].x;
+    }
+
+    for (size_t i = 0; i < ceilingRegions.size(); ++i) {
+        double regionStartX = ceilingRegions[i].x;
+        double regionEndX = (i + 1 < ceilingRegions.size()) ? ceilingRegions[i+1].x : std::numeric_limits<double>::max();
+
+        if (maxX > regionStartX && minX < regionEndX) {
+            if (bayHeight > ceilingRegions[i].height) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// --- SPATIAL HASH GRID IMPLEMENTATION ---
+
+SpatialGrid::SpatialGrid(double cellSize) : cellSize(cellSize) {}
+
+void SpatialGrid::getGridBounds(const OBB& obb, int& minX, int& maxX, int& minY, int& maxY) const {
+    double min_x = obb.corners[0].x, max_x = obb.corners[0].x;
+    double min_y = obb.corners[0].y, max_y = obb.corners[0].y;
+    
+    for (int i = 1; i < 4; ++i) {
+        if (obb.corners[i].x < min_x) min_x = obb.corners[i].x;
+        if (obb.corners[i].x > max_x) max_x = obb.corners[i].x;
+        if (obb.corners[i].y < min_y) min_y = obb.corners[i].y;
+        if (obb.corners[i].y > max_y) max_y = obb.corners[i].y;
+    }
+
+    minX = static_cast<int>(std::floor(min_x / cellSize));
+    maxX = static_cast<int>(std::floor(max_x / cellSize));
+    minY = static_cast<int>(std::floor(min_y / cellSize));
+    maxY = static_cast<int>(std::floor(max_y / cellSize));
+}
+
+void SpatialGrid::insertBay(int bayIndex, const OBB& obb) {
+    int minX, maxX, minY, maxY;
+    getGridBounds(obb, minX, maxX, minY, maxY);
+
+    for (int x = minX; x <= maxX; ++x) {
+        for (int y = minY; y <= maxY; ++y) {
+            gridBays[{x, y}].push_back(bayIndex);
+        }
+    }
+}
+
+void SpatialGrid::insertObstacle(int obsIndex, const Obstacle& obs) {
+    OBB obb = CollisionChecker::createObstacleOBB(obs);
+    int minX, maxX, minY, maxY;
+    getGridBounds(obb, minX, maxX, minY, maxY);
+
+    for (int x = minX; x <= maxX; ++x) {
+        for (int y = minY; y <= maxY; ++y) {
+            gridObstacles[{x, y}].push_back(obsIndex);
+        }
+    }
+}
+
+std::vector<int> SpatialGrid::getPotentialBayCollisions(const OBB& obb) const {
+    int minX, maxX, minY, maxY;
+    getGridBounds(obb, minX, maxX, minY, maxY);
+
+    std::unordered_set<int> uniqueBays;
+    for (int x = minX; x <= maxX; ++x) {
+        for (int y = minY; y <= maxY; ++y) {
+            GridKey key = {x, y};
+            auto it = gridBays.find(key);
+            if (it != gridBays.end()) {
+                for (int bayIndex : it->second) {
+                    uniqueBays.insert(bayIndex);
+                }
+            }
+        }
+    }
+
+    return std::vector<int>(uniqueBays.begin(), uniqueBays.end());
+}
+
+std::vector<int> SpatialGrid::getPotentialObstacleCollisions(const OBB& obb) const {
+    int minX, maxX, minY, maxY;
+    getGridBounds(obb, minX, maxX, minY, maxY);
+
+    std::unordered_set<int> uniqueObs;
+    for (int x = minX; x <= maxX; ++x) {
+        for (int y = minY; y <= maxY; ++y) {
+            GridKey key = {x, y};
+            auto it = gridObstacles.find(key);
+            if (it != gridObstacles.end()) {
+                for (int obsIndex : it->second) {
+                    uniqueObs.insert(obsIndex);
+                }
+            }
+        }
+    }
+
+    return std::vector<int>(uniqueObs.begin(), uniqueObs.end());
+}
+
+void SpatialGrid::clearBays() {
+    gridBays.clear();
+}
+
+void SpatialGrid::clearAll() {
+    gridBays.clear();
+    gridObstacles.clear();
+}
+
+
+============================================================
+File: backend/src/core/collision.hpp
+============================================================
+
+#pragma once
+
+#include "types.hpp"
+#include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include <cstddef>
+
+// Forward declaration so CollisionChecker can accept SpatialGrid* before it is defined
+class SpatialGrid;
+
+// Oriented Bounding Box
+struct OBB {
+    Point2D corners[4]; // 4 corners of the rotated rectangle (BL, BR, TR, TL in local space)
+    Point2D center;
+};
+
+/**
+ * @brief Low-level collision primitives and high-level placement validation.
+ *
+ * Collision rules (from constitution):
+ *   solid vs solid  = INVALID
+ *   solid vs gap    = INVALID
+ *   gap   vs solid  = INVALID
+ *   gap   vs gap    = VALID  (bays may share aisle space)
+ */
+class CollisionChecker {
+public:
+    // --- OBB construction ---
+
+    /** Creates the solid OBB for a bay. (x,y) is the pivot/bottom-left before rotation. */
+    static OBB createSolidOBB(const Bay& bay, const StaticState* staticInfo);
+
+    /**
+     * @brief Creates the gap OBB for a bay.
+     * The gap is the required aisle space on the depth+ face of the solid.
+     * It spans the full width and extends `gap` units beyond the solid region.
+     */
+    static OBB createGapOBB(const Bay& bay, const StaticState* staticInfo);
+
+    /** Creates an axis-aligned OBB for a rectangular obstacle. */
+    static OBB createObstacleOBB(const Obstacle& obs);
+
+    // --- High-level placement check ---
+
+    /**
+     * @brief Full validity check for placing a candidate bay.
+     *
+     * Verifies:
+     *  1. Solid is fully inside the warehouse polygon
+     *  2. Solid does not overlap any obstacle
+     *  3. Gap does not overlap any obstacle
+     *  4. Ceiling height satisfied across both solid and gap x-spans
+     *  5. Solid does not overlap any placed bay's solid
+     *  6. Solid does not overlap any placed bay's gap
+     *  7. Gap does not overlap any placed bay's solid
+     *  (Gap vs gap deliberately not checked — always valid)
+     *
+     * @param grid  Optional spatial grid for broad-phase narrowing. When provided,
+     *              only nearby bays are SAT-checked instead of the full placed list.
+     *              The grid must have been built with the solid OBBs of all placed bays.
+     *              Pass nullptr to fall back to brute-force O(N) checking.
+     */
+    static bool isValidPlacement(
+        const Bay& candidate,
+        const std::vector<Bay>& placed,
+        const StaticState* staticInfo,
+        const SpatialGrid* grid = nullptr
+    );
+
+    // --- Low-level SAT primitives ---
+
+    /** Returns true if two OBBs intersect (SAT). */
+    static bool checkOBBvsOBB(const OBB& a, const OBB& b);
+
+    /** Returns true if OBB is fully inside the warehouse polygon. */
+    static bool isOBBInsidePolygon(const OBB& obb, const std::vector<Point2D>& polygon);
+
+    /** Returns true if bay height fits under the ceiling across the solid's x-span. */
+    static bool checkCeiling(const OBB& solidOBB, double bayHeight,
+                              const std::vector<CeilingRegion>& ceilingRegions);
+
+    /** Looks up a BayType by id. Returns nullptr if not found. */
+    static const BayType* getBayType(int typeId, const StaticState* staticInfo);
+
+private:
+    static double dotProduct(const Point2D& a, const Point2D& b);
+    static void   projectOBB(const OBB& obb, const Point2D& axis, double& min, double& max);
+    static bool   overlap(double minA, double maxA, double minB, double maxB);
+    static bool   isPointInsidePolygon(const Point2D& p, const std::vector<Point2D>& polygon);
+    static bool   segmentsIntersect(const Point2D& p1, const Point2D& p2,
+                                    const Point2D& p3, const Point2D& p4);
+
+    /** Rotates 4 local corners around (pivotX, pivotY) and builds an OBB. */
+    static OBB buildOBBFromLocalCorners(const Point2D local[4], double pivotX, double pivotY,
+                                        double cosA, double sinA);
+};
+
+// --- SPATIAL HASH GRID ---
+
+struct GridKey {
+    int x, y;
+    bool operator==(const GridKey& other) const {
+        return x == other.x && y == other.y;
+    }
+};
+
+struct GridKeyHash {
+    std::size_t operator()(const GridKey& k) const {
+        // Simple hash function for 2D grid coordinates
+        return std::hash<int>()(k.x) ^ (std::hash<int>()(k.y) << 1);
+    }
+};
+
+// Spatial Grid for O(1) amortized collision lookups
+class SpatialGrid {
+public:
+    // cellSize should ideally be roughly the size of your largest bay
+    SpatialGrid(double cellSize);
+    
+    // Insert a bay's OBB into the grid. 'bayIndex' is the index in the State::bays vector.
+    void insertBay(int bayIndex, const OBB& obb);
+    
+    // Insert an obstacle into the grid. 'obsIndex' is the index in StaticState::obstacles.
+    void insertObstacle(int obsIndex, const Obstacle& obs);
+    
+    // Returns indices of bays that MIGHT collide with the given OBB
+    std::vector<int> getPotentialBayCollisions(const OBB& obb) const;
+    
+    // Returns indices of obstacles that MIGHT collide with the given OBB
+    std::vector<int> getPotentialObstacleCollisions(const OBB& obb) const;
+
+    // Clears all dynamic entities (bays). Obstacles can be kept if they are static.
+    void clearBays();
+    void clearAll();
+
+private:
+    double cellSize;
+    
+    // Maps cell coordinates to list of bay/obstacle indices
+    std::unordered_map<GridKey, std::vector<int>, GridKeyHash> gridBays;
+    std::unordered_map<GridKey, std::vector<int>, GridKeyHash> gridObstacles;
+    
+    void getGridBounds(const OBB& obb, int& minX, int& maxX, int& minY, int& maxY) const;
+};
+
+
+============================================================
+File: backend/src/core/score.cpp
+============================================================
+
+#include "score.hpp"
+#include <cmath>
+
+double warehouseArea(const std::vector<Point2D>& polygon) {
+    double area = 0.0;
+    const int n = static_cast<int>(polygon.size());
+    for (int i = 0; i < n; ++i) {
+        const Point2D& a = polygon[i];
+        const Point2D& b = polygon[(i + 1) % n];
+        area += a.x * b.y - b.x * a.y;
+    }
+    return std::fabs(area) / 2.0;
+}
+
+double computeScore(const std::vector<Bay>& bays,
+                    const StaticState& info,
+                    double wh_area) {
+    double sum_ratio = 0.0;
+    double sum_area  = 0.0;
+    for (const auto& bay : bays) {
+        for (const auto& bt : info.bayTypes) {
+            if (bt.id == bay.typeId) {
+                sum_ratio += bt.price / bt.nLoads;
+                sum_area  += bt.width * bt.depth;
+                break;
+            }
+        }
+    }
+    if (wh_area <= 0.0) return 0.0;
+    return sum_ratio * sum_ratio - sum_area / wh_area;
+}
+
+
+============================================================
+File: backend/src/core/score.hpp
+============================================================
+
+#pragma once
+#include "types.hpp"
+#include <vector>
+
+// Polygon area via the shoelace formula. Pass the warehousePolygon.
+double warehouseArea(const std::vector<Point2D>& polygon);
+
+// Q = (Σ_bay price/nLoads)^2 − (Σ_bay width*depth / wh_area).
+// Lower is better. Pass the result of warehouseArea() as wh_area.
+double computeScore(const std::vector<Bay>& bays,
+                    const StaticState& info,
+                    double wh_area);
+
+
+============================================================
+File: backend/src/core/types.hpp
+============================================================
+
+#pragma once
+
+#include <vector>
+#include <string>
+#include <limits>
+
+// --- STATIC PART ---
+
+struct Point2D {
+    double x;
+    double y;
+};
+
+struct Obstacle {
+    double x;
+    double y;
+    double width;
+    double depth;
+};
+
+struct BayType {
+    int id;
+    double width;
+    double depth;
+    double height;
+    double gap; 
+    double nLoads; 
+    double price; 
+};
+
+struct CeilingRegion {
+    double x; 
+    double height;
+};
+
+struct StaticState {
+    std::vector<Point2D>       warehousePolygon;
+    std::vector<Obstacle>      obstacles;
+    std::vector<CeilingRegion> ceilingRegions;
+    std::vector<BayType>       bayTypes;
+};
+
+// --- DYNAMIC DATA (one per solver thread / candidate solution) ---
+
+struct Bay {
+    int    typeId;
+    double x;
+    double y;
+    double rotation; ///< degrees: 0, 90, 180, 270 (or arbitrary for some solvers)
+};
+
+struct Solution {
+    std::vector<Bay> bays;
+    double      score      = std::numeric_limits<double>::max(); ///< Q value; lower is better
+    std::string producedBy = "";                                 ///< algorithm name, for logging
+    double      timeTaken  = 0.0;                                ///< time (seconds) since algorithm start
+};
+
+
+============================================================
+File: backend/src/io/parser.cpp
+============================================================
+
+#include "parser.hpp"
+#include <fstream>
+#include <sstream>
+
+static std::vector<double> parseCSVLine(const std::string& line) {
+    std::vector<double> result;
+    std::stringstream ss(line);
+    std::string cell;
+    while (std::getline(ss, cell, ',')) {
+        try { result.push_back(std::stod(cell)); } catch (...) {}
+    }
+    return result;
+}
+
+namespace io {
+
+bool parseStaticState(const std::string& directoryPath, StaticState& out) {
+    // Load warehouse.csv
+    {
+        std::ifstream file(directoryPath + "/warehouse.csv");
+        if (!file.is_open()) return false;
+        std::string line;
+        while (std::getline(file, line)) {
+            auto values = parseCSVLine(line);
+            if (values.size() >= 2) {
+                out.warehousePolygon.push_back({values[0], values[1]});
+            }
+        }
+    }
+
+    // Load obstacles.csv
+    {
+        std::ifstream file(directoryPath + "/obstacles.csv");
+        if (!file.is_open()) return false;
+        std::string line;
+        while (std::getline(file, line)) {
+            auto values = parseCSVLine(line);
+            if (values.size() >= 4) {
+                out.obstacles.push_back({values[0], values[1], values[2], values[3]});
+            }
+        }
+    }
+
+    // Load ceiling.csv
+    {
+        std::ifstream file(directoryPath + "/ceiling.csv");
+        if (!file.is_open()) return false;
+        std::string line;
+        while (std::getline(file, line)) {
+            auto values = parseCSVLine(line);
+            if (values.size() >= 2) {
+                out.ceilingRegions.push_back({values[0], values[1]});
+            }
+        }
+    }
+
+    // Load types_of_bays.csv
+    {
+        std::ifstream file(directoryPath + "/types_of_bays.csv");
+        if (!file.is_open()) return false;
+        std::string line;
+        while (std::getline(file, line)) {
+            auto values = parseCSVLine(line);
+            if (values.size() >= 7) {
+                BayType bt;
+                bt.id = static_cast<int>(values[0]);
+                bt.width = values[1];
+                bt.depth = values[2];
+                bt.height = values[3];
+                bt.gap = values[4];
+                bt.nLoads = values[5];
+                bt.price = values[6];
+                out.bayTypes.push_back(bt);
+            }
+        }
+    }
+
+    return true;
+}
+
+bool writeSolution(const std::string& filePath, const Solution& solution) {
+    std::ofstream file(filePath);
+    if (!file.is_open()) return false;
+
+    // Typically solutions include headers, here assuming: id, x, y, rotation
+    file << "type_id,x,y,rotation\n";
+    for (const auto& bay : solution.bays) {
+        file << bay.typeId << ","
+             << bay.x << ","
+             << bay.y << ","
+             << bay.rotation << "\n";
+    }
+
+    return true;
+}
+
+} // namespace io
+
+
+============================================================
+File: backend/src/io/parser.hpp
+============================================================
+
+#pragma once
+
+#include "../core/types.hpp"
+#include <string>
+
+namespace io {
+
+/**
+ * @brief Parses the 4 input CSVs from a case directory into a StaticState.
+ * @param directoryPath Path to the CaseX folder (e.g. "../../data/input/Case0").
+ * @param out           Output struct to populate.
+ * @return true on success, false if any file could not be opened.
+ */
+bool parseStaticState(const std::string& directoryPath, StaticState& out);
+
+/**
+ * @brief Writes the solution out to a CSV file.
+ * @param filePath Output path for the CSV.
+ * @param solution The solution to write.
+ * @return true on success, false if the file could not be written.
+ */
+bool writeSolution(const std::string& filePath, const Solution& solution);
+
+} // namespace io
+
+
+============================================================
+File: backend/src/main.cpp
+============================================================
+
+#include "core/types.hpp"
+#include "io/parser.hpp"
+#include "solvers/algorithm.hpp"
+#include "solvers/ga_angle.hpp"
+#include "solvers/ga_ortho.hpp"
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <memory>
+#include <chrono>
+#include <atomic>
+#include <string>
+#include <random>
+
+// ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
+// #include "solvers/greedy.hpp"
+// #include "solvers/sa.hpp"
+// #include "solvers/jostle.hpp"
+// #include "solvers/vns.hpp"
+
+static constexpr int    NUM_THREADS   = 6;
+static constexpr double TIME_LIMIT_S  = 29.0;
+
+// ─── CLI parsing ─────────────────────────────────────────────────────────────
+
+struct Config {
+    std::string caseDir  = "../data/input/Case0";
+    std::string mode     = "parallel";   // "parallel" | "portfolio"
+    std::string algo     = "greedy";     // used in parallel mode
+    std::string outCsv   = "solution.csv";
+};
+
+static Config parseArgs(int argc, char* argv[]) {
+    Config cfg;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--case"  && i + 1 < argc) cfg.caseDir = argv[++i];
+        if (arg == "--mode"  && i + 1 < argc) cfg.mode    = argv[++i];
+        if (arg == "--algo"  && i + 1 < argc) cfg.algo    = argv[++i];
+        if (arg == "--out"   && i + 1 < argc) cfg.outCsv  = argv[++i];
+    }
+    return cfg;
+}
+
+// ─── Algorithm factory ───────────────────────────────────────────────────────
+
+static std::unique_ptr<Algorithm> makeAlgorithm(
+    const std::string& algoName,
+    const StaticState& info,
+    uint64_t seed)
+{
+    // Uncomment each line as the solver is implemented:
+    // if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
+    if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
+    if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
+    // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
+    // if (algoName == "jostle")   return std::make_unique<Jostle>(info, seed);
+    // if (algoName == "vns")      return std::make_unique<Vns>(info, seed);
+
+    std::cerr << "[warn] Unknown algorithm '" << algoName << "'. No solver created.\n";
+    return nullptr;
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+
+int main(int argc, char* argv[]) {
+    Config cfg = parseArgs(argc, argv);
+
+    // 1. Load problem data
+    StaticState staticData;
+    if (!io::parseStaticState(cfg.caseDir, staticData)) {
+        std::cerr << "Failed to load case from: " << cfg.caseDir << "\n";
+        return 1;
+    }
+    std::cout << "Loaded: " << staticData.warehousePolygon.size() << " polygon pts, "
+              << staticData.obstacles.size()   << " obstacles, "
+              << staticData.ceilingRegions.size() << " ceiling regions, "
+              << staticData.bayTypes.size()    << " bay types\n";
+
+    // 2. Build algorithm list
+    std::random_device rd;
+    std::vector<std::unique_ptr<Algorithm>> algos;
+
+    if (cfg.mode == "parallel") {
+        // All threads run the same algorithm with different seeds
+        std::cout << "Mode: parallel  algo: " << cfg.algo << "\n";
+        for (int i = 0; i < NUM_THREADS; ++i) {
+            uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
+            auto algo = makeAlgorithm(cfg.algo, staticData, seed);
+            if (algo) algos.push_back(std::move(algo));
+        }
+    } else {
+        // Portfolio: one thread per algorithm
+        std::cout << "Mode: portfolio\n";
+        const std::vector<std::string> portfolio = {
+            "greedy", "ga_ortho", "ga_angle", "sa", "jostle", "vns"
+        };
+        for (int i = 0; i < (int)portfolio.size(); ++i) {
+            uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
+            auto algo = makeAlgorithm(portfolio[i], staticData, seed);
+            if (algo) algos.push_back(std::move(algo));
+        }
+    }
+
+    if (algos.empty()) {
+        std::cerr << "No algorithms available. Implement solvers and uncomment them in makeAlgorithm().\n";
+        return 1;
+    }
+
+    // 3. Spawn threads
+    std::atomic<bool> stop_flag{false};
+    std::vector<std::thread> threads;
+    threads.reserve(algos.size());
+
+    for (auto& algo : algos)
+        threads.emplace_back([&algo, &stop_flag] { algo->run(stop_flag); });
+
+    // 4. Wait for time limit, then signal stop
+    std::this_thread::sleep_for(
+        std::chrono::duration<double>(TIME_LIMIT_S));
+    stop_flag = true;
+
+    for (auto& t : threads) t.join();
+
+    // 5. Pick the best solution across all threads
+    const Solution* winner = nullptr;
+    for (const auto& algo : algos) {
+        const Solution& sol = algo->best();
+        if (!sol.bays.empty() &&
+            (winner == nullptr || sol.score < winner->score))
+            winner = &sol;
+    }
+
+    if (!winner || winner->bays.empty()) {
+        std::cerr << "No valid solution found.\n";
+        return 1;
+    }
+
+    std::cout << "Best solution: score=" << winner->score
+              << "  time=" << winner->timeTaken << "s"
+              << "  bays=" << winner->bays.size()
+              << "  algorithm=" << winner->producedBy << "\n";
+
+    if (io::writeSolution(cfg.outCsv, *winner)) {
+        std::cout << "Successfully saved solution to: " << cfg.outCsv << "\n";
+    } else {
+        std::cerr << "Failed to save solution to: " << cfg.outCsv << "\n";
+    }
+
+    return 0;
+}
+
+
+============================================================
+File: backend/src/solvers/algorithm.hpp
+============================================================
+
+#pragma once
+
+#include "../core/types.hpp"
+#include "../core/collision.hpp"
+#include <atomic>
+#include <random>
+#include <string>
+#include <algorithm>
+#include <chrono>
+
+/**
+ * @brief Abstract base class for all placement algorithms.
+ *
+ * Each algorithm runs on its own thread, loops until stop_flag is set,
+ * and keeps its personal best Solution in best_. The main thread reads
+ * best() only after joining — no locking required.
+ *
+ * Subclasses must implement:
+ *   - run(stop_flag)   — the optimization loop
+ *   - name()           — human-readable identifier
+ *
+ * Shared utilities provided by the base:
+ *   - tryPlace(bay)    — validate + insert into best_.bays and grid_
+ *   - resetLayout(bays)— rebuild grid from an arbitrary bay list
+ */
+class Algorithm {
+public:
+    /**
+     * @param info  Problem constants (polygon, obstacles, ceiling, bay types).
+     *              Must outlive this object — stored by reference.
+     * @param seed  RNG seed. Use different seeds per thread for parallel mode.
+     */
+    Algorithm(const StaticState& info, uint64_t seed)
+        : info_(info)
+        , rng_(seed)
+        , grid_(largestBayDim(info))
+        , startTime_(std::chrono::steady_clock::now())
+    {}
+
+    virtual ~Algorithm() = default;
+
+    // Non-copyable — each thread owns its own instance
+    Algorithm(const Algorithm&)            = delete;
+    Algorithm& operator=(const Algorithm&) = delete;
+
+    /** Runs the optimization loop. Blocks until stop_flag is true. */
+    virtual void run(std::atomic<bool>& stop_flag) = 0;
+
+    /** Human-readable algorithm name. */
+    virtual std::string name() const = 0;
+
+    /**
+     * @brief Best valid solution found so far.
+     * Safe to read only after run() has returned (i.e. after thread join).
+     */
+    const Solution& best() const { return best_; }
+
+protected:
+    // -------------------------------------------------------------------------
+    // Utility: placement helpers used by most algorithms
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Validate and place a bay into the current layout.
+     * Updates best_.bays and grid_ atomically (within this thread).
+     * @return true if the bay was placed successfully.
+     */
+    bool tryPlace(const Bay& bay) {
+        if (!CollisionChecker::isValidPlacement(bay, best_.bays, &info_, &grid_))
+            return false;
+        grid_.insertBay(static_cast<int>(best_.bays.size()),
+                        CollisionChecker::createSolidOBB(bay, &info_));
+        best_.bays.push_back(bay);
+        return true;
+    }
+
+    /**
+     * @brief Replace the current layout with a new bay list and rebuild the grid.
+     * Used by algorithms that mutate whole layouts (SA, Jostle).
+     * @param bays New bay list. Defaults to empty (full reset).
+     */
+    void resetLayout(const std::vector<Bay>& bays = {}) {
+        best_.bays = bays;
+        grid_.clearAll();
+        for (int i = 0; i < static_cast<int>(best_.bays.size()); ++i)
+            grid_.insertBay(i, CollisionChecker::createSolidOBB(best_.bays[i], &info_));
+    }
+
+    /**
+     * @brief Update best_ if the given solution scores lower.
+     * Call this whenever a candidate layout finishes to track the global best.
+     * @param candidate  A fully built Solution (bays + score already computed).
+     */
+    void updateBest(Solution candidate) {
+        candidate.producedBy = name();
+        candidate.timeTaken = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime_).count();
+        if (candidate.score < best_.score)
+            best_ = std::move(candidate);
+    }
+
+    // -------------------------------------------------------------------------
+    // Protected members accessible to subclasses
+    // -------------------------------------------------------------------------
+
+    const StaticState& info_;  ///< shared, read-only problem data
+    std::mt19937_64    rng_;   ///< per-thread RNG — seed in constructor
+    SpatialGrid        grid_;  ///< broad-phase grid for the current layout
+    Solution           best_;  ///< best solution found so far
+    std::chrono::steady_clock::time_point startTime_; ///< timestamp when algorithm was constructed
+
+private:
+    /** Returns the largest bay footprint dimension to use as grid cell size. */
+    static double largestBayDim(const StaticState& info) {
+        double d = 1.0;
+        for (const auto& bt : info.bayTypes)
+            d = std::max(d, std::max(bt.width, bt.depth));
+        return d;
+    }
+};
+
+
+============================================================
+File: backend/src/solvers/ga_angle.cpp
+============================================================
+
+#include "ga_angle.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace {
+
+void expandBounds(const OBB& obb,
+                  double& min_x,
+                  double& max_x,
+                  double& min_y,
+                  double& max_y) {
+    for (int i = 0; i < 4; ++i) {
+        min_x = std::min(min_x, obb.corners[i].x);
+        max_x = std::max(max_x, obb.corners[i].x);
+        min_y = std::min(min_y, obb.corners[i].y);
+        max_y = std::max(max_y, obb.corners[i].y);
+    }
+}
+
+}  // namespace
+
+GAAngle::GAAngle(const StaticState& info, uint64_t seed)
+    : GeneticAlgorithm(info, seed) {
+}
+
+Solution GAAngle::decodeChromosome(const Chromosome& chromosome) {
+    return decodeContinuousBLF(chromosome);
+}
+
+Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome) {
+    Solution decoded;
+    decoded.producedBy = name();
+    constexpr int kQuasiAnglesPerAnchor = 12;
+    constexpr int kMaxAnchors = 256;
+    constexpr double kGoldenAngle = 137.50776405003785;
+
+    if (chromosome.empty()) {
+        decoded.score = evaluateQ(decoded);
+        return decoded;
+    }
+
+    double min_x = std::numeric_limits<double>::max();
+    double min_y = std::numeric_limits<double>::max();
+    for (const auto& point : info_.warehousePolygon) {
+        min_x = std::min(min_x, point.x);
+        min_y = std::min(min_y, point.y);
+    }
+
+    std::vector<Point2D> anchors;
+    anchors.push_back({min_x, min_y});
+
+    SpatialGrid decode_grid(defaultCellSize());
+
+    for (int bay_id : chromosome) {
+        if (getBayTypeById(bay_id) == nullptr) {
+            continue;
+        }
+
+        bool found = false;
+        Bay best_candidate{bay_id, 0.0, 0.0, 0.0};
+        double best_y = std::numeric_limits<double>::max();
+        double best_x = std::numeric_limits<double>::max();
+
+        for (const auto& anchor : anchors) {
+            std::vector<double> angles = {0.0, 90.0, 180.0, 270.0};
+            const double base_angle = randomAngleDegrees();
+            for (int i = 0; i < kQuasiAnglesPerAnchor; ++i) {
+                angles.push_back(
+                    std::fmod(base_angle + i * kGoldenAngle, 360.0));
+            }
+
+            bool anchor_found = false;
+            Bay anchor_best{bay_id, 0.0, 0.0, 0.0};
+            double anchor_best_y = std::numeric_limits<double>::max();
+            double anchor_best_x = std::numeric_limits<double>::max();
+
+            for (double angle : angles) {
+                Bay candidate{bay_id, anchor.x, anchor.y, angle};
+                if (!CollisionChecker::isValidPlacement(
+                        candidate,
+                        decoded.bays,
+                        &info_,
+                        &decode_grid)) {
+                    continue;
+                }
+
+                if (!anchor_found ||
+                    candidate.y < anchor_best_y ||
+                    (candidate.y == anchor_best_y && candidate.x < anchor_best_x)) {
+                    anchor_found = true;
+                    anchor_best = candidate;
+                    anchor_best_y = candidate.y;
+                    anchor_best_x = candidate.x;
+                }
+            }
+
+            if (anchor_found) {
+                const std::vector<double> local_deltas = {
+                    -12.0, -6.0, -3.0, -1.0, 1.0, 3.0, 6.0, 12.0
+                };
+                for (double delta : local_deltas) {
+                    double refined_angle = std::fmod(anchor_best.rotation + delta, 360.0);
+                    if (refined_angle < 0.0) {
+                        refined_angle += 360.0;
+                    }
+
+                    Bay refined{bay_id, anchor.x, anchor.y, refined_angle};
+                    if (!CollisionChecker::isValidPlacement(
+                            refined,
+                            decoded.bays,
+                            &info_,
+                            &decode_grid)) {
+                        continue;
+                    }
+
+                    if (refined.y < anchor_best_y ||
+                        (refined.y == anchor_best_y && refined.x < anchor_best_x)) {
+                        anchor_best = refined;
+                        anchor_best_y = refined.y;
+                        anchor_best_x = refined.x;
+                    }
+                }
+
+                if (!found ||
+                    anchor_best.y < best_y ||
+                    (anchor_best.y == best_y && anchor_best.x < best_x)) {
+                    found = true;
+                    best_candidate = anchor_best;
+                    best_y = anchor_best.y;
+                    best_x = anchor_best.x;
+                }
+            }
+        }
+
+        if (!found) {
+            continue;
+        }
+
+        decoded.bays.push_back(best_candidate);
+        OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
+        decode_grid.insertBay(static_cast<int>(decoded.bays.size() - 1), solid);
+
+        OBB gap = CollisionChecker::createGapOBB(best_candidate, &info_);
+        double placed_min_x = solid.corners[0].x;
+        double placed_max_x = solid.corners[0].x;
+        double placed_min_y = solid.corners[0].y;
+        double placed_max_y = solid.corners[0].y;
+        expandBounds(gap, placed_min_x, placed_max_x, placed_min_y, placed_max_y);
+        expandBounds(solid, placed_min_x, placed_max_x, placed_min_y, placed_max_y);
+
+        anchors.push_back({placed_max_x, placed_min_y});
+        anchors.push_back({placed_min_x, placed_max_y});
+
+        std::sort(
+            anchors.begin(),
+            anchors.end(),
+            [](const Point2D& lhs, const Point2D& rhs) {
+                if (lhs.y != rhs.y) {
+                    return lhs.y < rhs.y;
+                }
+                return lhs.x < rhs.x;
+            });
+        if (anchors.size() > static_cast<size_t>(kMaxAnchors)) {
+            anchors.resize(static_cast<size_t>(kMaxAnchors));
+        }
+    }
+
+    decoded.score = evaluateQ(decoded);
+    return decoded;
+}
+
+
+============================================================
+File: backend/src/solvers/ga_angle.hpp
+============================================================
+
+#pragma once
+
+#include "genetic_algorithm.hpp"
+
+class GAAngle : public GeneticAlgorithm {
+public:
+    GAAngle(const StaticState& info, uint64_t seed);
+
+    std::string name() const override { return "ga_angle"; }
+
+    Solution decodeChromosome(const Chromosome& chromosome) override;
+    Solution decodeContinuousBLF(const Chromosome& chromosome);
+};
+
+
+============================================================
+File: backend/src/solvers/ga_ortho.cpp
+============================================================
+
+#include "ga_ortho.hpp"
+#include <algorithm>
+#include <limits>
+
+namespace {
+
+void expandBounds(const OBB& obb,
+                  double& min_x,
+                  double& max_x,
+                  double& min_y,
+                  double& max_y) {
+    for (int i = 0; i < 4; ++i) {
+        min_x = std::min(min_x, obb.corners[i].x);
+        max_x = std::max(max_x, obb.corners[i].x);
+        min_y = std::min(min_y, obb.corners[i].y);
+        max_y = std::max(max_y, obb.corners[i].y);
+    }
+}
+
+}  // namespace
+
+GAOrtho::GAOrtho(const StaticState& info, uint64_t seed)
+    : GeneticAlgorithm(info, seed) {
+}
+
+Solution GAOrtho::decodeChromosome(const Chromosome& chromosome) {
+    return decodeOrthogonalBLF(chromosome);
+}
+
+Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
+    Solution decoded;
+    decoded.producedBy = name();
+    constexpr int kMaxAnchors = 256;
+
+    if (chromosome.empty()) {
+        decoded.score = evaluateQ(decoded);
+        return decoded;
+    }
+
+    double min_x = std::numeric_limits<double>::max();
+    double min_y = std::numeric_limits<double>::max();
+    for (const auto& point : info_.warehousePolygon) {
+        min_x = std::min(min_x, point.x);
+        min_y = std::min(min_y, point.y);
+    }
+
+    std::vector<Point2D> anchors;
+    anchors.push_back({min_x, min_y});
+
+    SpatialGrid decode_grid(defaultCellSize());
+    for (const auto& bay_id : chromosome) {
+        const BayType* bay_type = getBayTypeById(bay_id);
+        if (bay_type == nullptr) {
+            continue;
+        }
+
+        bool found = false;
+        Bay best_candidate{bay_id, 0.0, 0.0, 0.0};
+        double best_y = std::numeric_limits<double>::max();
+        double best_x = std::numeric_limits<double>::max();
+
+        for (const auto& anchor : anchors) {
+            for (double angle : {0.0, 90.0, 180.0, 270.0}) {
+                Bay candidate{bay_id, anchor.x, anchor.y, angle};
+                if (!CollisionChecker::isValidPlacement(
+                        candidate,
+                        decoded.bays,
+                        &info_,
+                        &decode_grid)) {
+                    continue;
+                }
+
+                if (!found ||
+                    candidate.y < best_y ||
+                    (candidate.y == best_y && candidate.x < best_x)) {
+                    found = true;
+                    best_candidate = candidate;
+                    best_y = candidate.y;
+                    best_x = candidate.x;
+                }
+            }
+        }
+
+        if (!found) {
+            continue;
+        }
+
+        decoded.bays.push_back(best_candidate);
+        OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
+        decode_grid.insertBay(static_cast<int>(decoded.bays.size() - 1), solid);
+
+        OBB gap = CollisionChecker::createGapOBB(best_candidate, &info_);
+        double placed_min_x = solid.corners[0].x;
+        double placed_max_x = solid.corners[0].x;
+        double placed_min_y = solid.corners[0].y;
+        double placed_max_y = solid.corners[0].y;
+        expandBounds(gap, placed_min_x, placed_max_x, placed_min_y, placed_max_y);
+        expandBounds(solid, placed_min_x, placed_max_x, placed_min_y, placed_max_y);
+
+        anchors.push_back({placed_max_x, placed_min_y});
+        anchors.push_back({placed_min_x, placed_max_y});
+
+        std::sort(
+            anchors.begin(),
+            anchors.end(),
+            [](const Point2D& lhs, const Point2D& rhs) {
+                if (lhs.y != rhs.y) {
+                    return lhs.y < rhs.y;
+                }
+                return lhs.x < rhs.x;
+            });
+        if (anchors.size() > static_cast<size_t>(kMaxAnchors)) {
+            anchors.resize(static_cast<size_t>(kMaxAnchors));
+        }
+    }
+
+    decoded.score = evaluateQ(decoded);
+    return decoded;
+}
+
+
+============================================================
+File: backend/src/solvers/ga_ortho.hpp
+============================================================
+
+#pragma once
+
+#include "genetic_algorithm.hpp"
+
+class GAOrtho : public GeneticAlgorithm {
+public:
+    GAOrtho(const StaticState& info, uint64_t seed);
+
+    std::string name() const override { return "ga_ortho"; }
+
+    // Phase 2: Orthogonal BLF decoder and fitness
+    Solution decodeChromosome(const Chromosome& chromosome) override;
+    Solution decodeOrthogonalBLF(const Chromosome& chromosome);
+};
+
+
+============================================================
+File: backend/src/solvers/genetic_algorithm.cpp
+============================================================
+
+#include "genetic_algorithm.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <random>
+#include <unordered_set>
+
+namespace {
+
+struct Individual {
+    GeneticAlgorithm::Chromosome chromosome;
+    Solution solution;
+};
+
+}  // namespace
+
+GeneticAlgorithm::GeneticAlgorithm(const StaticState& info, uint64_t seed)
+    : Algorithm(info, seed) {
+}
+
+void GeneticAlgorithm::run(std::atomic<bool>& stop_flag) {
+    const GAParams hp = params();
+    if (info_.bayTypes.empty()) {
+        return;
+    }
+
+    std::vector<Individual> population;
+    population.reserve(static_cast<size_t>(hp.population_size));
+    for (int i = 0; i < hp.population_size; ++i) {
+        Chromosome chromosome = randomChromosome();
+        Solution solution = decodeChromosome(chromosome);
+        population.push_back({std::move(chromosome), std::move(solution)});
+        updateBest(population.back().solution);
+    }
+
+    auto better_individual = [this](const Individual& lhs, const Individual& rhs) {
+        return isBetterSolution(lhs.solution, rhs.solution);
+    };
+
+    auto tournament_select = [this, &population, &better_individual, &hp]() {
+        std::uniform_int_distribution<int> pick_dist(
+            0,
+            static_cast<int>(population.size()) - 1);
+        int best_idx = pick_dist(rng_);
+        for (int i = 1; i < hp.tournament_size; ++i) {
+            int idx = pick_dist(rng_);
+            if (better_individual(population[idx], population[best_idx])) {
+                best_idx = idx;
+            }
+        }
+        return best_idx;
+    };
+
+    int stagnation = 0;
+    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+
+    while (!stop_flag) {
+        std::sort(population.begin(), population.end(), better_individual);
+
+        const Solution generation_best = population.front().solution;
+        const Solution previous_global_best = best_;
+        updateBest(generation_best);
+        if (best_.score < previous_global_best.score) {
+            stagnation = 0;
+        } else {
+            ++stagnation;
+        }
+
+        const double stagnation_factor =
+            std::min(1.0, static_cast<double>(stagnation) / 40.0);
+        const double swap_rate = hp.swap_rate_base +
+            (hp.swap_rate_max - hp.swap_rate_base) * stagnation_factor;
+        const double scramble_rate = hp.scramble_rate_base +
+            (hp.scramble_rate_max - hp.scramble_rate_base) * stagnation_factor;
+
+        std::vector<Individual> next_population;
+        next_population.reserve(static_cast<size_t>(hp.population_size));
+
+        const int elite_count = std::min(
+            hp.elite_count,
+            static_cast<int>(population.size()));
+        for (int i = 0; i < elite_count; ++i) {
+            next_population.push_back(population[i]);
+        }
+
+        const int target_children = hp.population_size - hp.immigrants_per_generation;
+        while (static_cast<int>(next_population.size()) < target_children) {
+            const int parent_a = tournament_select();
+            const int parent_b = tournament_select();
+
+            Chromosome child = crossoverOX1(
+                population[parent_a].chromosome,
+                population[parent_b].chromosome);
+
+            if (prob_dist(rng_) < swap_rate) {
+                mutateSwap(child);
+            }
+            if (prob_dist(rng_) < scramble_rate) {
+                mutateScramble(child);
+            }
+
+            Solution child_solution = decodeChromosome(child);
+            next_population.push_back({std::move(child), std::move(child_solution)});
+        }
+
+        while (static_cast<int>(next_population.size()) < hp.population_size) {
+            Chromosome immigrant = randomChromosome();
+            Solution immigrant_solution = decodeChromosome(immigrant);
+            next_population.push_back(
+                {std::move(immigrant), std::move(immigrant_solution)});
+        }
+
+        for (const auto& individual : next_population) {
+            updateBest(individual.solution);
+        }
+
+        population = std::move(next_population);
+    }
+}
+
+GeneticAlgorithm::Chromosome GeneticAlgorithm::randomChromosome() {
+    Chromosome chromosome;
+    chromosome.reserve(info_.bayTypes.size());
+    for (const auto& bay_type : info_.bayTypes) {
+        chromosome.push_back(bay_type.id);
+    }
+    std::shuffle(chromosome.begin(), chromosome.end(), rng_);
+    return chromosome;
+}
+
+GeneticAlgorithm::Chromosome GeneticAlgorithm::crossoverOX1(
+    const Chromosome& p1,
+    const Chromosome& p2) {
+    if (p1.empty() || p1.size() != p2.size()) {
+        return p1;
+    }
+
+    const int n = static_cast<int>(p1.size());
+    Chromosome child(n, -1);
+
+    std::uniform_int_distribution<int> dist(0, n - 1);
+    int start = dist(rng_);
+    int end = dist(rng_);
+    if (start > end) {
+        std::swap(start, end);
+    }
+
+    std::unordered_set<int> copied;
+    for (int i = start; i <= end; ++i) {
+        child[i] = p1[i];
+        copied.insert(p1[i]);
+    }
+
+    int child_idx = (end + 1) % n;
+    int p2_idx = (end + 1) % n;
+    for (int i = 0; i < n; ++i) {
+        const int candidate = p2[p2_idx];
+        if (copied.find(candidate) == copied.end()) {
+            child[child_idx] = candidate;
+            child_idx = (child_idx + 1) % n;
+        }
+        p2_idx = (p2_idx + 1) % n;
+    }
+
+    return child;
+}
+
+void GeneticAlgorithm::mutateSwap(Chromosome& chromosome) {
+    if (chromosome.size() < 2) {
+        return;
+    }
+
+    std::uniform_int_distribution<int> dist(
+        0,
+        static_cast<int>(chromosome.size()) - 1);
+    const int idx1 = dist(rng_);
+    const int idx2 = dist(rng_);
+    std::swap(chromosome[idx1], chromosome[idx2]);
+}
+
+void GeneticAlgorithm::mutateScramble(Chromosome& chromosome) {
+    if (chromosome.size() < 2) {
+        return;
+    }
+
+    std::uniform_int_distribution<int> dist(
+        0,
+        static_cast<int>(chromosome.size()) - 1);
+    int start = dist(rng_);
+    int end = dist(rng_);
+    if (start > end) {
+        std::swap(start, end);
+    }
+    std::shuffle(chromosome.begin() + start, chromosome.begin() + end + 1, rng_);
+}
+
+const BayType* GeneticAlgorithm::getBayTypeById(int type_id) const {
+    for (const auto& bay_type : info_.bayTypes) {
+        if (bay_type.id == type_id) {
+            return &bay_type;
+        }
+    }
+    return nullptr;
+}
+
+double GeneticAlgorithm::evaluateQ(const Solution& solution) const {
+    double value_term = 0.0;
+    double used_area = 0.0;
+
+    for (const auto& bay : solution.bays) {
+        const BayType* bay_type = getBayTypeById(bay.typeId);
+        if (bay_type == nullptr || bay_type->nLoads <= 0.0) {
+            continue;
+        }
+        value_term += bay_type->price / bay_type->nLoads;
+        used_area += bay_type->width * bay_type->depth;
+    }
+
+    const double warehouse_area = polygonArea(info_.warehousePolygon);
+    if (warehouse_area <= 0.0) {
+        return std::numeric_limits<double>::max();
+    }
+
+    return value_term * value_term - (used_area / warehouse_area);
+}
+
+double GeneticAlgorithm::polygonArea(const std::vector<Point2D>& polygon) {
+    if (polygon.size() < 3) {
+        return 0.0;
+    }
+
+    double twice_area = 0.0;
+    for (size_t i = 0; i < polygon.size(); ++i) {
+        const size_t j = (i + 1) % polygon.size();
+        twice_area += polygon[i].x * polygon[j].y - polygon[j].x * polygon[i].y;
+    }
+    return std::abs(twice_area) * 0.5;
+}
+
+double GeneticAlgorithm::randomAngleDegrees() {
+    std::uniform_real_distribution<double> angle_dist(0.0, 360.0);
+    return angle_dist(rng_);
+}
+
+bool GeneticAlgorithm::isBetterSolution(
+    const Solution& lhs,
+    const Solution& rhs) const {
+    constexpr double kScoreEps = 1e-9;
+    if (lhs.score + kScoreEps < rhs.score) {
+        return true;
+    }
+    if (rhs.score + kScoreEps < lhs.score) {
+        return false;
+    }
+    if (lhs.bays.size() != rhs.bays.size()) {
+        return lhs.bays.size() > rhs.bays.size();
+    }
+    return solutionFootprintArea(lhs) < solutionFootprintArea(rhs);
+}
+
+double GeneticAlgorithm::solutionFootprintArea(const Solution& solution) const {
+    if (solution.bays.empty()) {
+        return 0.0;
+    }
+
+    double min_x = std::numeric_limits<double>::max();
+    double max_x = -std::numeric_limits<double>::max();
+    double min_y = std::numeric_limits<double>::max();
+    double max_y = -std::numeric_limits<double>::max();
+
+    for (const auto& bay : solution.bays) {
+        OBB solid = CollisionChecker::createSolidOBB(bay, &info_);
+        for (const auto& corner : solid.corners) {
+            min_x = std::min(min_x, corner.x);
+            max_x = std::max(max_x, corner.x);
+            min_y = std::min(min_y, corner.y);
+            max_y = std::max(max_y, corner.y);
+        }
+    }
+
+    return (max_x - min_x) * (max_y - min_y);
+}
+
+GeneticAlgorithm::GAParams GeneticAlgorithm::params() const {
+    return {};
+}
+
+double GeneticAlgorithm::defaultCellSize() const {
+    double cell_size = 1.0;
+    for (const auto& bay_type : info_.bayTypes) {
+        cell_size = std::max(cell_size, std::max(bay_type.width, bay_type.depth));
+    }
+    return cell_size;
+}
+
+
+============================================================
+File: backend/src/solvers/genetic_algorithm.hpp
+============================================================
+
+#pragma once
+
+#include "algorithm.hpp"
+#include <vector>
+
+class GeneticAlgorithm : public Algorithm {
+public:
+    using Chromosome = std::vector<int>;
+
+    GeneticAlgorithm(const StaticState& info, uint64_t seed);
+
+    void run(std::atomic<bool>& stop_flag) override;
+
+    Chromosome crossoverOX1(const Chromosome& p1, const Chromosome& p2);
+    void mutateSwap(Chromosome& chromosome);
+    void mutateScramble(Chromosome& chromosome);
+
+    double evaluateQ(const Solution& solution) const;
+
+protected:
+    struct GAParams {
+        int population_size = 24;
+        int elite_count = 4;
+        int tournament_size = 3;
+        int immigrants_per_generation = 2;
+        double swap_rate_base = 0.25;
+        double swap_rate_max = 0.55;
+        double scramble_rate_base = 0.10;
+        double scramble_rate_max = 0.35;
+    };
+
+    virtual Solution decodeChromosome(const Chromosome& chromosome) = 0;
+
+    Chromosome randomChromosome();
+    const BayType* getBayTypeById(int type_id) const;
+    double randomAngleDegrees();
+    static double polygonArea(const std::vector<Point2D>& polygon);
+    bool isBetterSolution(const Solution& lhs, const Solution& rhs) const;
+    double solutionFootprintArea(const Solution& solution) const;
+    GAParams params() const;
+
+    double defaultCellSize() const;
+};
+
+
+============================================================
+File: backend/src/solvers/greedy.cpp
+============================================================
+
+#include "greedy.hpp"
+#include "../core/collision.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+GreedySolver::GreedySolver(const StaticState& info, uint64_t seed)
+    : Algorithm(info, seed)
+    , wh_area_(warehouseArea(info.warehousePolygon))
+{
+    // Sort bay type indices by footprint area descending (largest first)
+    for (int i = 0; i < static_cast<int>(info_.bayTypes.size()); ++i)
+        sorted_type_ids_.push_back(i);
+    std::sort(sorted_type_ids_.begin(), sorted_type_ids_.end(),
+              [&](int a, int b) {
+                  const auto& ta = info_.bayTypes[a];
+                  const auto& tb = info_.bayTypes[b];
+                  return (ta.width * ta.depth) > (tb.width * tb.depth);
+              });
+
+    // Precompute 13 rotation angles: 0, 15, ..., 180 degrees
+    for (int i = 0; i < 13; ++i)
+        rotations_[i] = static_cast<double>(i) * 15.0;
+}
+
+void GreedySolver::run(std::atomic<bool>& stop_flag) {
+    (void)stop_flag; // single-pass — ignores stop flag
+    fillPass();
+    updateBest(best_);
+}
+
+void GreedySolver::fillPass() {
+    resetLayout(); // clear best_.bays and grid_
+
+    if (info_.warehousePolygon.empty() || info_.bayTypes.empty()) return;
+
+    // Seed candidate set with warehouse AABB bottom-left corner
+    double min_x = info_.warehousePolygon[0].x;
+    double min_y = info_.warehousePolygon[0].y;
+    for (const auto& p : info_.warehousePolygon) {
+        if (p.x < min_x) min_x = p.x;
+        if (p.y < min_y) min_y = p.y;
+    }
+
+    // Small epsilon to keep trial positions strictly inside the polygon
+    // (boundary points may fail the ray-casting inside-polygon test).
+    constexpr double EPS = 1e-3;
+
+    CandidateSet candidates;
+    candidates.insert({min_x + EPS, min_y + EPS});
+
+    // Also seed with obstacle corners (potential tight-packing spots)
+    for (const auto& obs : info_.obstacles) {
+        candidates.insert({obs.x + EPS,             obs.y + EPS});
+        candidates.insert({obs.x + obs.width + EPS, obs.y + EPS});
+        candidates.insert({obs.x + EPS,             obs.y + obs.depth + EPS});
+        candidates.insert({obs.x + obs.width + EPS, obs.y + obs.depth + EPS});
+    }
+
+    std::array<double, 13> rots = rotations_;
+
+    while (!candidates.empty()) {
+        // Pop the bottom-left candidate (smallest y, then smallest x)
+        Point2D pos = *candidates.begin();
+        candidates.erase(candidates.begin());
+
+        bool placed = false;
+        for (int type_idx : sorted_type_ids_) {
+            if (placed) break;
+            const BayType& bt = info_.bayTypes[type_idx];
+
+            // Shuffle rotations per position for inter-thread diversity
+            std::shuffle(rots.begin(), rots.end(), rng_);
+
+            for (double rot : rots) {
+                Bay candidate{bt.id, pos.x, pos.y, rot};
+                if (tryPlace(candidate)) {
+                    // Add the new bay's solid corners as future candidates
+                    OBB solid = CollisionChecker::createSolidOBB(candidate, &info_);
+                    for (int i = 0; i < 4; ++i)
+                        candidates.insert(solid.corners[i]);
+                    placed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    best_.score      = computeScore(best_.bays, info_, wh_area_);
+    best_.producedBy = name();
+}
+
+
+============================================================
+File: backend/src/solvers/greedy.hpp
+============================================================
+
+#pragma once
+#include "algorithm.hpp"
+#include "../core/score.hpp"
+#include <array>
+#include <set>
+
+/**
+ * @brief Constructive BLF (Bottom-Left Fill) greedy solver.
+ *
+ * Maintains a sorted candidate set of insertion points derived from
+ * previously placed bay corners. At each point, tries every bay type
+ * (largest first) across 13 rotation angles (0-180 degrees, step 15).
+ *
+ * fillPass() is public so SimulatedAnnealing can call it directly as
+ * a warm-start without going through run().
+ */
+class GreedySolver : public Algorithm {
+public:
+    GreedySolver(const StaticState& info, uint64_t seed);
+
+    void        run(std::atomic<bool>& stop_flag) override;
+    std::string name() const override { return "greedy"; }
+
+    /**
+     * @brief Run one BLF fill pass into best_.bays.
+     * Resets the layout first (best_.bays cleared, grid cleared).
+     * Computes and stores best_.score after placement.
+     */
+    void fillPass();
+
+private:
+    double           wh_area_;
+    std::vector<int> sorted_type_ids_; ///< indices into info_.bayTypes, desc by area
+    std::array<double, 13> rotations_; ///< 0, 15, 30, ..., 180 degrees
+
+    struct PointCmp {
+        bool operator()(const Point2D& a, const Point2D& b) const {
+            if (a.y != b.y) return a.y < b.y;
+            return a.x < b.x;
+        }
+    };
+    using CandidateSet = std::set<Point2D, PointCmp>;
+};
+
+
+============================================================
+File: backend/tests/test_algorithm.cpp
+============================================================
+
+#include "../src/solvers/algorithm.hpp"
+#include "../src/core/types.hpp"
+#include <iostream>
+#include <limits>
+#include <atomic>
+
+// ─── Minimal test runner ──────────────────────────────────────────────────────
+
+static int passed = 0;
+static int failed = 0;
+
+#define TEST(name, expr)                                          \
+    do {                                                          \
+        if (expr) {                                               \
+            std::cout << "  [PASS] " << name << "\n";            \
+            ++passed;                                             \
+        } else {                                                  \
+            std::cout << "  [FAIL] " << name << "\n";            \
+            ++failed;                                             \
+        }                                                         \
+    } while (0)
+
+#define SECTION(name) std::cout << "\n" << name << "\n";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+static StaticState makeBasicState() {
+    StaticState s;
+    s.warehousePolygon = {{0,0}, {10000,0}, {10000,10000}, {0,10000}};
+    s.ceilingRegions = {{0, 5000}};
+    s.bayTypes.push_back({0, 800, 1200, 2800, 200, 4, 2000});
+    return s;
+}
+
+class TestAlgorithm : public Algorithm {
+public:
+    TestAlgorithm(const StaticState& info, uint64_t seed) : Algorithm(info, seed) {}
+
+    void run(std::atomic<bool>& stop_flag) override {
+        // Mock run
+        (void)stop_flag;
+    }
+
+    std::string name() const override { return "TestAlgo"; }
+
+    // Expose protected methods
+    bool publicTryPlace(const Bay& bay) { return tryPlace(bay); }
+    void publicResetLayout(const std::vector<Bay>& bays) { resetLayout(bays); }
+    void publicUpdateBest(const Solution& candidate) { updateBest(candidate); }
+};
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+void testSolutionDefaults() {
+    SECTION("Solution - Defaults");
+    Solution s;
+    TEST("Score is max initially", s.score == std::numeric_limits<double>::max());
+    TEST("producedBy is empty initially", s.producedBy == "");
+    TEST("Bays list is empty initially", s.bays.empty());
+}
+
+void testAlgorithmUpdateBest() {
+    SECTION("Algorithm - updateBest");
+    StaticState state = makeBasicState();
+    TestAlgorithm algo(state, 42);
+
+    Solution initialBest = algo.best();
+    TEST("Initial best score is max", initialBest.score == std::numeric_limits<double>::max());
+
+    Solution candidate1;
+    candidate1.score = 100.0;
+    candidate1.bays.push_back({0, 1000, 1000, 0});
+    
+    algo.publicUpdateBest(candidate1);
+    
+    TEST("best is updated when score is lower", algo.best().score == 100.0);
+    TEST("producedBy is set to algorithm name", algo.best().producedBy == "TestAlgo");
+    TEST("best has correct bays", algo.best().bays.size() == 1);
+
+    Solution candidate2;
+    candidate2.score = 150.0; // Worse score
+    algo.publicUpdateBest(candidate2);
+    
+    TEST("best is NOT updated when score is higher", algo.best().score == 100.0);
+    TEST("producedBy remains the same", algo.best().producedBy == "TestAlgo");
+}
+
+void testAlgorithmTryPlace() {
+    SECTION("Algorithm - tryPlace");
+    StaticState state = makeBasicState();
+    TestAlgorithm algo(state, 123);
+
+    Bay validBay = {0, 1000, 1000, 0};
+    TEST("tryPlace returns true for valid bay", algo.publicTryPlace(validBay));
+    TEST("best bays updated with valid bay", algo.best().bays.size() == 1);
+
+    // Try placing an overlapping bay
+    Bay overlappingBay = {0, 1200, 1000, 0}; 
+    TEST("tryPlace returns false for overlapping bay", !algo.publicTryPlace(overlappingBay));
+    TEST("best bays not updated with invalid bay", algo.best().bays.size() == 1);
+}
+
+void testAlgorithmResetLayout() {
+    SECTION("Algorithm - resetLayout");
+    StaticState state = makeBasicState();
+    TestAlgorithm algo(state, 999);
+
+    Bay b1 = {0, 1000, 1000, 0};
+    Bay b2 = {0, 2000, 2000, 0};
+    std::vector<Bay> layout = {b1, b2};
+
+    algo.publicResetLayout(layout);
+    TEST("resetLayout updates best bays", algo.best().bays.size() == 2);
+
+    // Verify grid was rebuilt by trying an overlapping bay
+    Bay overlapping = {0, 1000, 1000, 0};
+    TEST("Grid works after resetLayout", !algo.publicTryPlace(overlapping));
+
+    // Valid placement still works
+    Bay newValid = {0, 5000, 5000, 0};
+    TEST("Valid placement works after resetLayout", algo.publicTryPlace(newValid));
+    TEST("Best bays increased to 3", algo.best().bays.size() == 3);
+}
+
+int main() {
+    std::cout << "=== Algorithm & Solution Tests ===\n";
+
+    testSolutionDefaults();
+    testAlgorithmUpdateBest();
+    testAlgorithmTryPlace();
+    testAlgorithmResetLayout();
+
+    std::cout << "\n=== Results: " << passed << " passed, " << failed << " failed ===\n";
+    return failed > 0 ? 1 : 0;
+}
+
+
+============================================================
+File: backend/tests/test_collision.cpp
+============================================================
+
+#include "../src/core/collision.hpp"
+#include "../src/core/types.hpp"
+#include <cmath>
+#include <iostream>
+#include <cassert>
+
+// ─── Minimal test runner ──────────────────────────────────────────────────────
+
+static int passed = 0;
+static int failed = 0;
+
+#define TEST(name, expr)                                          \
+    do {                                                          \
+        if (expr) {                                               \
+            std::cout << "  [PASS] " << name << "\n";            \
+            ++passed;                                             \
+        } else {                                                  \
+            std::cout << "  [FAIL] " << name << "\n";            \
+            ++failed;                                             \
+        }                                                         \
+    } while (0)
+
+#define SECTION(name) std::cout << "\n" << name << "\n";
+
+static bool nearlyEqual(double a, double b, double eps = 0.01) {
+    return std::fabs(a - b) < eps;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Build a minimal StaticState with one bay type and an L-shaped warehouse. */
+static StaticState makeBasicState() {
+    StaticState s;
+    // Simple 10000x10000 square warehouse
+    s.warehousePolygon = {{0,0}, {10000,0}, {10000,10000}, {0,10000}};
+    // One ceiling region covering everything
+    s.ceilingRegions = {{0, 5000}};
+    // One bay type: 800 wide, 1200 deep, 2800 high, 200 gap, 4 loads, price 2000
+    s.bayTypes.push_back({0, 800, 1200, 2800, 200, 4, 2000});
+    return s;
+}
+
+static Bay makeBay(int typeId, double x, double y, double rotation) {
+    return {typeId, x, y, rotation};
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+void testSolidOBB() {
+    SECTION("createSolidOBB");
+
+    StaticState s = makeBasicState();
+    Bay bay = makeBay(0, 1000, 2000, 0);
+    OBB obb = CollisionChecker::createSolidOBB(bay, &s);
+
+    // At rotation=0: corners should be (1000,2000), (1800,2000), (1800,3200), (1000,3200)
+    TEST("BL corner x", nearlyEqual(obb.corners[0].x, 1000));
+    TEST("BL corner y", nearlyEqual(obb.corners[0].y, 2000));
+    TEST("BR corner x", nearlyEqual(obb.corners[1].x, 1800));
+    TEST("BR corner y", nearlyEqual(obb.corners[1].y, 2000));
+    TEST("TR corner x", nearlyEqual(obb.corners[2].x, 1800));
+    TEST("TR corner y", nearlyEqual(obb.corners[2].y, 3200));
+    TEST("TL corner x", nearlyEqual(obb.corners[3].x, 1000));
+    TEST("TL corner y", nearlyEqual(obb.corners[3].y, 3200));
+    TEST("Center x",    nearlyEqual(obb.center.x, 1400));
+    TEST("Center y",    nearlyEqual(obb.center.y, 2600));
+}
+
+void testGapOBB() {
+    SECTION("createGapOBB");
+
+    StaticState s = makeBasicState();
+    Bay bay = makeBay(0, 1000, 2000, 0);
+    OBB gap = CollisionChecker::createGapOBB(bay, &s);
+
+    // Gap sits immediately beyond the depth face (y=3200 to y=3400 for gap=200)
+    TEST("Gap BL y", nearlyEqual(gap.corners[0].y, 3200));
+    TEST("Gap TR y", nearlyEqual(gap.corners[2].y, 3400));
+    TEST("Gap same width as solid", nearlyEqual(gap.corners[1].x - gap.corners[0].x, 800));
+}
+
+void testGapOBBRotated() {
+    SECTION("createGapOBB — rotated 90°");
+
+    StaticState s = makeBasicState();
+    Bay bay = makeBay(0, 1000, 2000, 90);
+    OBB solid = CollisionChecker::createSolidOBB(bay, &s);
+    OBB gap   = CollisionChecker::createGapOBB(bay, &s);
+
+    // After 90° rotation the gap should be adjacent to the solid but not overlapping it
+    // We verify by checking that gap vs solid does NOT report intersection
+    TEST("Rotated gap does not overlap its own solid", !CollisionChecker::checkOBBvsOBB(solid, gap));
+}
+
+void testObstacleOBB() {
+    SECTION("createObstacleOBB — uses depth, not height");
+
+    Obstacle obs{500, 500, 300, 400}; // x, y, width, depth
+    OBB obb = CollisionChecker::createObstacleOBB(obs);
+
+    TEST("BL x", nearlyEqual(obb.corners[0].x, 500));
+    TEST("BL y", nearlyEqual(obb.corners[0].y, 500));
+    TEST("TR x", nearlyEqual(obb.corners[2].x, 800));   // 500 + width(300)
+    TEST("TR y", nearlyEqual(obb.corners[2].y, 900));   // 500 + depth(400)  ← was broken when using obs.height
+    TEST("Center x", nearlyEqual(obb.center.x, 650));
+    TEST("Center y", nearlyEqual(obb.center.y, 700));
+}
+
+void testOBBvsOBB() {
+    SECTION("checkOBBvsOBB");
+
+    StaticState s = makeBasicState();
+
+    // Two clearly overlapping bays (same position)
+    Bay a = makeBay(0, 1000, 1000, 0);
+    Bay b = makeBay(0, 1000, 1000, 0);
+    OBB obbA = CollisionChecker::createSolidOBB(a, &s);
+    OBB obbB = CollisionChecker::createSolidOBB(b, &s);
+    TEST("Identical bays overlap", CollisionChecker::checkOBBvsOBB(obbA, obbB));
+
+    // Two bays touching but not overlapping (bay b starts where bay a ends)
+    Bay c = makeBay(0, 1000, 1000, 0); // ends at x=1800
+    Bay d = makeBay(0, 1800, 1000, 0); // starts at x=1800
+    OBB obbC = CollisionChecker::createSolidOBB(c, &s);
+    OBB obbD = CollisionChecker::createSolidOBB(d, &s);
+    TEST("Touching bays do not overlap", !CollisionChecker::checkOBBvsOBB(obbC, obbD));
+
+    // Two clearly separated bays
+    Bay e = makeBay(0, 0,    0, 0);
+    Bay f = makeBay(0, 5000, 0, 0);
+    OBB obbE = CollisionChecker::createSolidOBB(e, &s);
+    OBB obbF = CollisionChecker::createSolidOBB(f, &s);
+    TEST("Separated bays do not overlap", !CollisionChecker::checkOBBvsOBB(obbE, obbF));
+}
+
+void testIsValidPlacement() {
+    SECTION("isValidPlacement — basic cases");
+
+    StaticState s = makeBasicState();
+    std::vector<Bay> empty;
+
+    // Valid: bay comfortably inside the warehouse
+    Bay good = makeBay(0, 1000, 1000, 0);
+    TEST("Bay inside warehouse is valid", CollisionChecker::isValidPlacement(good, empty, &s));
+
+    // Invalid: bay starts outside the warehouse
+    Bay outside = makeBay(0, -100, 1000, 0);
+    TEST("Bay outside warehouse is invalid", !CollisionChecker::isValidPlacement(outside, empty, &s));
+}
+
+void testIsValidPlacementObstacle() {
+    SECTION("isValidPlacement — obstacle collision");
+
+    StaticState s = makeBasicState();
+    s.obstacles.push_back({1200, 1200, 400, 400}); // obstacle in the middle
+
+    std::vector<Bay> empty;
+    Bay overlapping = makeBay(0, 1000, 1000, 0); // solid covers 1000-1800 x 1000-2200, intersects obstacle
+    TEST("Bay overlapping obstacle is invalid",
+         !CollisionChecker::isValidPlacement(overlapping, empty, &s));
+
+    Bay clear = makeBay(0, 5000, 5000, 0);
+    TEST("Bay far from obstacle is valid",
+         CollisionChecker::isValidPlacement(clear, empty, &s));
+}
+
+void testIsValidPlacementCeiling() {
+    SECTION("isValidPlacement — ceiling constraint");
+
+    StaticState s = makeBasicState();
+    // Bay type 0 has height=2800. Ceiling is 5000 everywhere → fits.
+    Bay fits = makeBay(0, 1000, 1000, 0);
+    TEST("Bay fits under ceiling", CollisionChecker::isValidPlacement(fits, {}, &s));
+
+    // Now add a low ceiling region that starts at x=0 (height=2000 < bay height 2800)
+    s.ceilingRegions = {{0, 2000}};
+    TEST("Bay does not fit under low ceiling",
+         !CollisionChecker::isValidPlacement(fits, {}, &s));
+}
+
+void testIsValidPlacementInterBay() {
+    SECTION("isValidPlacement — inter-bay solid vs solid");
+
+    StaticState s = makeBasicState();
+
+    Bay first  = makeBay(0, 1000, 1000, 0);
+    Bay second = makeBay(0, 1200, 1000, 0); // overlaps with first
+
+    std::vector<Bay> placed = {first};
+    TEST("Overlapping second bay is invalid",
+         !CollisionChecker::isValidPlacement(second, placed, &s));
+
+    Bay adjacent = makeBay(0, 1800, 1000, 0); // touches first but does not overlap
+    TEST("Adjacent (touching) bay is valid",
+         CollisionChecker::isValidPlacement(adjacent, placed, &s));
+}
+
+void testGapVsGapIsValid() {
+    SECTION("isValidPlacement — gap vs gap must be VALID");
+
+    StaticState s = makeBasicState();
+
+    // Two bays facing each other: first at y=1000 (gap extends to y=3400),
+    // second rotated 180° at y=3400 (gap extends downward overlapping first's gap).
+    Bay first  = makeBay(0, 1000, 1000,   0);
+    Bay second = makeBay(0, 1000, 3400, 180);
+
+    std::vector<Bay> placed = {first};
+    TEST("Bays sharing gap space (gap vs gap) is valid",
+         CollisionChecker::isValidPlacement(second, placed, &s));
+}
+
+void testSolidVsGapIsInvalid() {
+    SECTION("isValidPlacement — solid must not enter another bay's gap");
+
+    StaticState s = makeBasicState();
+
+    // first bay: solid 1000-1800 x 1000-2200, gap 1000-1800 x 2200-2400
+    Bay first  = makeBay(0, 1000, 1000, 0);
+    // second bay: solid starts at y=2200 — inside first's gap region
+    Bay second = makeBay(0, 1000, 2200, 0);
+
+    std::vector<Bay> placed = {first};
+    TEST("Bay solid entering another bay's gap is invalid",
+         !CollisionChecker::isValidPlacement(second, placed, &s));
+}
+
+void testCeilingOnGap() {
+    SECTION("isValidPlacement — ceiling applies to gap too");
+
+    // Bay type 0: width=800, depth=1200, height=2800, gap=200
+    //
+    // At rotation=270°, pivot=(5000,3000):
+    //   solid x-span = [5000, 6200]   (pivot_x to pivot_x + depth)
+    //   gap   x-span = [6200, 6400]   (immediately beyond solid)
+    //
+    // Ceiling: high [0,6200) → solid OK
+    //          low  [6200,∞) → gap fails (2800 > 2000)
+
+    StaticState s = makeBasicState();
+    Bay bay = makeBay(0, 5000, 3000, 270);
+
+    s.ceilingRegions = {{0, 5000}};
+    TEST("High ceiling everywhere — valid",
+         CollisionChecker::isValidPlacement(bay, {}, &s));
+
+    // Low ceiling that only covers the gap x-span — solid passes, gap fails
+    s.ceilingRegions = {{0, 5000}, {6200, 2000}};
+    TEST("Low ceiling over gap x-span only — invalid",
+         !CollisionChecker::isValidPlacement(bay, {}, &s));
+
+    // Low ceiling that covers the solid x-span — fails too (regression guard)
+    s.ceilingRegions = {{0, 2000}};
+    TEST("Low ceiling over solid x-span — invalid",
+         !CollisionChecker::isValidPlacement(bay, {}, &s));
+}
+
+void testIsValidPlacementWithGrid() {
+    SECTION("isValidPlacement — with SpatialGrid (broad-phase)");
+
+    StaticState s = makeBasicState();
+
+    // Build a grid with cell size matching bay width
+    SpatialGrid grid(800.0);
+
+    Bay first = makeBay(0, 1000, 1000, 0);
+    OBB firstSolid = CollisionChecker::createSolidOBB(first, &s);
+    grid.insertBay(0, firstSolid);
+    std::vector<Bay> placed = {first};
+
+    // Overlapping bay — grid should narrow candidates to {first} and reject
+    Bay overlap = makeBay(0, 1200, 1000, 0);
+    TEST("Grid: overlapping bay is invalid",
+         !CollisionChecker::isValidPlacement(overlap, placed, &s, &grid));
+
+    // Adjacent bay — grid may return {first} as candidate, SAT clears it
+    Bay adjacent = makeBay(0, 1800, 1000, 0);
+    TEST("Grid: adjacent (touching) bay is valid",
+         CollisionChecker::isValidPlacement(adjacent, placed, &s, &grid));
+
+    // Far-away bay — grid returns no candidates, still valid
+    Bay farAway = makeBay(0, 7000, 7000, 0);
+    TEST("Grid: far-away bay is valid with no candidates checked",
+         CollisionChecker::isValidPlacement(farAway, placed, &s, &grid));
+
+    // Grid and brute-force must agree on every case
+    TEST("Grid agrees with brute-force on overlapping bay",
+         CollisionChecker::isValidPlacement(overlap, placed, &s, nullptr) ==
+         CollisionChecker::isValidPlacement(overlap, placed, &s, &grid));
+    TEST("Grid agrees with brute-force on adjacent bay",
+         CollisionChecker::isValidPlacement(adjacent, placed, &s, nullptr) ==
+         CollisionChecker::isValidPlacement(adjacent, placed, &s, &grid));
+    TEST("Grid agrees with brute-force on far-away bay",
+         CollisionChecker::isValidPlacement(farAway, placed, &s, nullptr) ==
+         CollisionChecker::isValidPlacement(farAway, placed, &s, &grid));
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+
+int main() {
+    std::cout << "=== Collision Engine Tests ===\n";
+
+    testSolidOBB();
+    testGapOBB();
+    testGapOBBRotated();
+    testObstacleOBB();
+    testOBBvsOBB();
+    testIsValidPlacement();
+    testIsValidPlacementObstacle();
+    testIsValidPlacementCeiling();
+    testIsValidPlacementInterBay();
+    testGapVsGapIsValid();
+    testSolidVsGapIsInvalid();
+    testCeilingOnGap();
+    testIsValidPlacementWithGrid();
+
+    std::cout << "\n=== Results: " << passed << " passed, " << failed << " failed ===\n";
+    return failed > 0 ? 1 : 0;
+}
+
+
+============================================================
+File: backend/tests/test_ga_angle.cpp
+============================================================
+
+#include "../src/solvers/ga_angle.hpp"
+#include "../src/core/types.hpp"
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <iostream>
+
+namespace {
+
+StaticState makeStateForDecode() {
+    StaticState state;
+    state.warehousePolygon = {
+        {0, 0}, {1000, 0}, {1000, 1000}, {0, 1000}
+    };
+    state.ceilingRegions = {{0, 1000}};
+    state.bayTypes.push_back({1, 100, 100, 10, 20, 2, 10});
+    state.bayTypes.push_back({2, 120, 80, 10, 20, 5, 5});
+    return state;
+}
+
+double expectedQForAllPlaced() {
+    const double sum_ratio = (10.0 / 2.0) + (5.0 / 5.0);
+    const double used_area = (100.0 * 100.0) + (120.0 * 80.0);
+    const double warehouse_area = 1000.0 * 1000.0;
+    return sum_ratio * sum_ratio - (used_area / warehouse_area);
+}
+
+}  // namespace
+
+void test_genetic_operators() {
+    StaticState state = makeStateForDecode();
+    GAAngle ga(state, 42);
+
+    GeneticAlgorithm::Chromosome p1 = {1, 2};
+    GeneticAlgorithm::Chromosome p2 = {2, 1};
+    GeneticAlgorithm::Chromosome child = ga.crossoverOX1(p1, p2);
+
+    assert(child.size() == p1.size());
+    std::sort(child.begin(), child.end());
+    assert(child[0] == 1);
+    assert(child[1] == 2);
+
+    GeneticAlgorithm::Chromosome c = {1, 2};
+    ga.mutateSwap(c);
+    std::sort(c.begin(), c.end());
+    assert(c[0] == 1);
+    assert(c[1] == 2);
+
+    std::cout << "test_genetic_operators passed!" << std::endl;
+}
+
+void test_decode_and_fitness() {
+    StaticState state = makeStateForDecode();
+    GAAngle ga(state, 7);
+
+    GeneticAlgorithm::Chromosome chromosome = {1, 2};
+    Solution decoded = ga.decodeContinuousBLF(chromosome);
+
+    assert(decoded.bays.size() == 2);
+    assert(std::abs(decoded.bays[0].x) < 1e-9);
+    assert(std::abs(decoded.bays[0].y) < 1e-9);
+    for (const auto& bay : decoded.bays) {
+        assert(bay.rotation >= 0.0);
+        assert(bay.rotation <= 360.0);
+    }
+
+    const double expected = expectedQForAllPlaced();
+    const double actual = ga.evaluateQ(decoded);
+    assert(std::abs(actual - expected) < 1e-9);
+    std::cout << "test_decode_and_fitness passed!" << std::endl;
+}
+
+int main() {
+    test_genetic_operators();
+    test_decode_and_fitness();
+    std::cout << "All GAAngle tests passed!" << std::endl;
+    return 0;
+}
+
+
+============================================================
+File: backend/tests/test_ga_ortho.cpp
+============================================================
+
+#include "../src/solvers/ga_ortho.hpp"
+#include "../src/core/types.hpp"
+#include <iostream>
+#include <cassert>
+#include <algorithm>
+#include <cmath>
+
+namespace {
+
+StaticState makeStateForDecode() {
+    StaticState state;
+    state.warehousePolygon = {
+        {0, 0}, {1000, 0}, {1000, 1000}, {0, 1000}
+    };
+    state.ceilingRegions = {{0, 1000}};
+    state.bayTypes.push_back({1, 100, 100, 10, 20, 2, 10});
+    state.bayTypes.push_back({2, 120, 80, 10, 20, 5, 5});
+    return state;
+}
+
+double expectedQForAllPlaced() {
+    const double sum_ratio = (10.0 / 2.0) + (5.0 / 5.0);
+    const double used_area = (100.0 * 100.0) + (120.0 * 80.0);
+    const double warehouse_area = 1000.0 * 1000.0;
+    return sum_ratio * sum_ratio - (used_area / warehouse_area);
+}
+
+}  // namespace
+
+void test_crossover() {
+    StaticState state;
+    GAOrtho ga(state, 42); // fixed seed
+    
+    GAOrtho::Chromosome p1 = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    GAOrtho::Chromosome p2 = {9, 3, 7, 8, 2, 6, 5, 1, 4};
+    
+    GAOrtho::Chromosome child = ga.crossoverOX1(p1, p2);
+    
+    assert(child.size() == p1.size());
+    // Check that all elements are unique (valid permutation)
+    GAOrtho::Chromosome sorted_child = child;
+    std::sort(sorted_child.begin(), sorted_child.end());
+    for (size_t i = 0; i < sorted_child.size(); ++i) {
+        assert(sorted_child[i] == static_cast<int>(i + 1));
+    }
+    std::cout << "test_crossover passed!" << std::endl;
+}
+
+void test_mutation() {
+    StaticState state;
+    GAOrtho ga(state, 42); // fixed seed
+    
+    GAOrtho::Chromosome c = {1, 2, 3, 4, 5};
+    ga.mutateSwap(c);
+    
+    assert(c.size() == 5);
+    GAOrtho::Chromosome sorted_c = c;
+    std::sort(sorted_c.begin(), sorted_c.end());
+    for (size_t i = 0; i < sorted_c.size(); ++i) {
+        assert(sorted_c[i] == static_cast<int>(i + 1));
+    }
+    std::cout << "test_mutation swap passed!" << std::endl;
+
+    GAOrtho::Chromosome c2 = {1, 2, 3, 4, 5};
+    ga.mutateScramble(c2);
+    assert(c2.size() == 5);
+    GAOrtho::Chromosome sorted_c2 = c2;
+    std::sort(sorted_c2.begin(), sorted_c2.end());
+    for (size_t i = 0; i < sorted_c2.size(); ++i) {
+        assert(sorted_c2[i] == static_cast<int>(i + 1));
+    }
+    std::cout << "test_mutation scramble passed!" << std::endl;
+}
+
+void test_decode_and_fitness() {
+    StaticState state = makeStateForDecode();
+    GAOrtho ga(state, 7);
+
+    GAOrtho::Chromosome chromosome = {1, 2};
+    Solution decoded = ga.decodeOrthogonalBLF(chromosome);
+
+    assert(decoded.bays.size() == 2);
+    assert(std::abs(decoded.bays[0].x) < 1e-9);
+    assert(std::abs(decoded.bays[0].y) < 1e-9);
+
+    for (const auto& bay : decoded.bays) {
+        assert(bay.rotation == 0.0 ||
+               bay.rotation == 90.0 ||
+               bay.rotation == 180.0 ||
+               bay.rotation == 270.0);
+    }
+
+    const double expected = expectedQForAllPlaced();
+    const double actual = ga.evaluateQ(decoded);
+    assert(std::abs(actual - expected) < 1e-9);
+    std::cout << "test_decode_and_fitness passed!" << std::endl;
+}
+
+int main() {
+    test_crossover();
+    test_mutation();
+    test_decode_and_fitness();
+    std::cout << "All GAOrtho tests passed!" << std::endl;
+    return 0;
+}
+
+
+============================================================
+File: backend/tests/test_greedy.cpp
+============================================================
+
+#include "../src/solvers/greedy.hpp"
+#include "../src/core/score.hpp"
+#include "../src/core/collision.hpp"
+#include <atomic>
+#include <cassert>
+#include <iostream>
+#include <limits>
+
+static int passed = 0, failed = 0;
+
+#define TEST(name, expr) \
+    do { if (expr) { std::cout << "  [PASS] " << name << "\n"; ++passed; } \
+         else      { std::cout << "  [FAIL] " << name << "\n"; ++failed; } } while(0)
+
+static StaticState makeState() {
+    StaticState s;
+    s.warehousePolygon = {{0,0},{10000,0},{10000,10000},{0,10000}};
+    s.ceilingRegions   = {{0, 5000.0}};
+    s.bayTypes.push_back({0, 800.0, 1200.0, 2800.0, 200.0, 4.0, 2000.0});
+    return s;
+}
+
+void testGreedyPlacesBays() {
+    std::cout << "\nGreedy places bays\n";
+    StaticState s = makeState();
+    GreedySolver solver(s, 42);
+    std::atomic<bool> stop{false};
+    solver.run(stop);
+
+    const Solution& sol = solver.best();
+    TEST("places at least 1 bay",  sol.bays.size() >= 1);
+    TEST("score is not max_double", sol.score < std::numeric_limits<double>::max());
+    TEST("producedBy is 'greedy'",  sol.producedBy == "greedy");
+}
+
+void testGreedyBaysAreValid() {
+    std::cout << "\nGreedy bays pass collision checks\n";
+    StaticState s = makeState();
+    GreedySolver solver(s, 42);
+    std::atomic<bool> stop{false};
+    solver.run(stop);
+
+    const Solution& sol = solver.best();
+    for (int i = 0; i < (int)sol.bays.size(); ++i) {
+        std::vector<Bay> placed(sol.bays.begin(), sol.bays.begin() + i);
+        bool valid = CollisionChecker::isValidPlacement(sol.bays[i], placed, &s);
+        TEST("bay " + std::to_string(i) + " is valid", valid);
+    }
+}
+
+void testGreedyScoreMatchesCompute() {
+    std::cout << "\nGreedy score matches computeScore\n";
+    StaticState s = makeState();
+    GreedySolver solver(s, 42);
+    std::atomic<bool> stop{false};
+    solver.run(stop);
+
+    const Solution& sol = solver.best();
+    double wh = warehouseArea(s.warehousePolygon);
+    double expected = computeScore(sol.bays, s, wh);
+    TEST("score matches computeScore", std::fabs(sol.score - expected) < 1e-6);
+}
+
+void testGreedyMultipleTypes() {
+    std::cout << "\nGreedy with two bay types\n";
+    StaticState s = makeState();
+    s.bayTypes.push_back({1, 400.0, 600.0, 2800.0, 100.0, 2.0, 800.0});
+    GreedySolver solver(s, 7);
+    std::atomic<bool> stop{false};
+    solver.run(stop);
+
+    const Solution& sol = solver.best();
+    TEST("places at least 1 bay with two types", sol.bays.size() >= 1);
+    TEST("score is not max_double with two types",
+         sol.score < std::numeric_limits<double>::max());
+}
+
+int main() {
+    std::cout << "=== Greedy Solver Tests ===\n";
+    testGreedyPlacesBays();
+    testGreedyBaysAreValid();
+    testGreedyScoreMatchesCompute();
+    testGreedyMultipleTypes();
+    std::cout << "\n=== Results: " << passed << " passed, "
+              << failed << " failed ===\n";
+    return failed > 0 ? 1 : 0;
+}
+
+
+============================================================
+File: backend/tests/test_score.cpp
+============================================================
+
+#include "../src/core/score.hpp"
+#include "../src/core/types.hpp"
+#include <cmath>
+#include <iostream>
+
+static int passed = 0, failed = 0;
+
+#define TEST(name, expr) \
+    do { if (expr) { std::cout << "  [PASS] " << name << "\n"; ++passed; } \
+         else      { std::cout << "  [FAIL] " << name << "\n"; ++failed; } } while(0)
+
+static bool near(double a, double b, double eps = 1e-6) {
+    return std::fabs(a - b) < eps;
+}
+
+void testWarehouseArea() {
+    std::cout << "\nwarehouseArea\n";
+    std::vector<Point2D> sq = {{0,0},{10,0},{10,10},{0,10}};
+    TEST("10x10 square", near(warehouseArea(sq), 100.0));
+
+    std::vector<Point2D> tri = {{0,0},{4,0},{0,3}};
+    TEST("3-4 right triangle", near(warehouseArea(tri), 6.0));
+
+    TEST("empty polygon", near(warehouseArea({}), 0.0));
+}
+
+void testComputeScore() {
+    std::cout << "\ncomputeScore\n";
+    StaticState s;
+    s.warehousePolygon = {{0,0},{10000,0},{10000,10000},{0,10000}};
+    // id=0, width=800, depth=1200, height=2800, gap=200, nLoads=4, price=2000
+    s.bayTypes.push_back({0, 800.0, 1200.0, 2800.0, 200.0, 4.0, 2000.0});
+    double wh = warehouseArea(s.warehousePolygon); // 1e8
+
+    TEST("empty layout score = 0", near(computeScore({}, s, wh), 0.0));
+
+    // One bay: ratio = 2000/4 = 500, area = 800*1200 = 960000
+    // Q = 500^2 - 960000/1e8 = 250000 - 0.0096
+    Bay b{0, 0.0, 0.0, 0.0};
+    double expected = 500.0 * 500.0 - 960000.0 / 1e8;
+    TEST("one bay score", near(computeScore({b}, s, wh), expected, 1e-4));
+
+    // Two identical bays: ratio_sum=1000, area_sum=1920000
+    // Q = 1000^2 - 1920000/1e8
+    Bay b2{0, 2000.0, 0.0, 0.0};
+    double expected2 = 1000.0 * 1000.0 - 1920000.0 / 1e8;
+    TEST("two bay score", near(computeScore({b, b2}, s, wh), expected2, 1e-4));
+}
+
+int main() {
+    std::cout << "=== Score Tests ===\n";
+    testWarehouseArea();
+    testComputeScore();
+    std::cout << "\n=== Results: " << passed << " passed, "
+              << failed << " failed ===\n";
+    return failed > 0 ? 1 : 0;
+}
+
+
