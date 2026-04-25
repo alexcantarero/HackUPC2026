@@ -2,6 +2,7 @@
 #include "collision.hpp"
 #include <cmath>
 #include <limits>
+#include <iostream>
 
 double warehouseArea(const std::vector<Point2D>& polygon) {
     double area = 0.0;
@@ -14,7 +15,6 @@ double warehouseArea(const std::vector<Point2D>& polygon) {
     return std::fabs(area) / 2.0;
 }
 
-// The Monotonic Objective (Q_new) to smoothly guide the algorithms
 double computeTrainingScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area) {
     if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
     double sum_ratio = 0.0, sum_area = 0.0;
@@ -27,10 +27,16 @@ double computeTrainingScore(const std::vector<Bay>& bays, const StaticState& inf
     }
     if (sum_area <= 0.0) return std::numeric_limits<double>::max();
     double area_fraction = wh_area / sum_area;
-    return sum_ratio * (area_fraction * area_fraction);
+    double score = sum_ratio * (area_fraction * area_fraction);
+    
+    // Protect against NaN crashes in std::sort
+    if (std::isnan(score)) {
+        std::cout << "Warning: NaN score encountered. sum_ratio=" << sum_ratio << ", sum_area=" << sum_area << ", wh_area=" << wh_area << "\n"; 
+        return std::numeric_limits<double>::max();
+    }
+    return score;
 }
 
-// The Judge's Exact Formula (Q_old)
 double computeOfficialScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area) {
     if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
     double sum_ratio = 0.0, sum_area = 0.0;
@@ -44,6 +50,9 @@ double computeOfficialScore(const std::vector<Bay>& bays, const StaticState& inf
     if (sum_ratio <= 0.0) return std::numeric_limits<double>::max();
     
     double exponent = 2.0 - (sum_area / wh_area);
-    if (exponent < 1.0) exponent = 1.0; // Safety cap
-    return std::pow(sum_ratio, exponent);
+    if (exponent < 1.0) exponent = 1.0; 
+    
+    double score = std::pow(sum_ratio, exponent);
+    if (std::isnan(score)) return std::numeric_limits<double>::max();
+    return score;
 }

@@ -143,17 +143,22 @@ bool CollisionChecker::isValidPlacement(
     // Broad-phase: query grid with both solid and gap OBBs to get nearby candidates,
     // then narrow-phase SAT only against those. Falls back to O(N) without a grid.
     if (grid) {
-        // Use thread_local so the memory capacity is preserved across millions of calls,
-        // meaning ZERO heap allocations after the first few iterations.
+        // thread_local so capacity is preserved across millions of calls (zero heap allocs).
         thread_local std::vector<int> candidates;
-        candidates.clear(); // Resets size to 0, but keeps capacity!
+        thread_local std::vector<int> gap_cands;
+        candidates.clear();
+        gap_cands.clear();
 
-        // Accumulate unique candidates directly into the single vector
+        // getPotentialBayCollisions clears the vector before filling it, so we must
+        // query solid and gap into separate vectors then merge — otherwise the second
+        // call would erase the first call's results and solid-only overlaps go unchecked.
         grid->getPotentialBayCollisions(solidOBB, candidates);
-        grid->getPotentialBayCollisions(gapOBB, candidates);
+        grid->getPotentialBayCollisions(gapOBB,   gap_cands);
+        for (int idx : gap_cands) {
+            if (std::find(candidates.begin(), candidates.end(), idx) == candidates.end())
+                candidates.push_back(idx);
+        }
 
-        // Now 'candidates' contains the pure union of both queries, 
-        // without ever using an unordered_set.
         for (int idx : candidates) {
             const OBB otherSolid = createSolidOBB(placed[idx], staticInfo);
             const OBB otherGap   = createGapOBB(placed[idx], staticInfo);

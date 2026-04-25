@@ -1,8 +1,36 @@
 #!/usr/bin/env python3
 
-import os
 import sys
 from pathlib import Path
+
+
+EXCLUDED_DIR_NAMES = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".cache",
+    "node_modules",
+    "build",
+    "dist",
+    "out",
+    "bin",
+}
+
+EXCLUDED_DIR_PREFIXES = {
+    "cmake-build-",
+}
+
+
+def is_excluded_path(path: Path, root: Path) -> bool:
+    rel_parts = path.relative_to(root).parts
+    return any(
+        part in EXCLUDED_DIR_NAMES or any(part.startswith(prefix) for prefix in EXCLUDED_DIR_PREFIXES)
+        for part in rel_parts
+    )
+
 
 def concatenate_code(directory, output_file="combined_code.txt"):
     directory = Path(directory)
@@ -12,10 +40,15 @@ def concatenate_code(directory, output_file="combined_code.txt"):
         sys.exit(1)
     
     # Find all .cpp and .hpp files
-    extensions = ["*.cpp", "*.hpp"]
+    extensions = ["*.cpp", "*.hpp", "*.py", "Makefile"]
+    
     files = []
     for ext in extensions:
-        files.extend(directory.rglob(ext))
+        files.extend(
+            file_path
+            for file_path in directory.rglob(ext)
+            if not is_excluded_path(file_path, directory)
+        )
     
     # Sort files for consistent output
     files.sort()
