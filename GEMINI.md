@@ -28,7 +28,7 @@
 
 ### 1.3 Objective Function
 The goal is to minimize $Q$:
-$$Q = \left( \sum_{\text{bay}} \frac{\text{price}}{\text{loads}} \right)^2 - \frac{\sum_{\text{bay}} \text{area}}{\text{area}_{\text{warehouse}}}$$
+$$Q = \left( \sum_{\text{bay}} \frac{\text{price}}{\text{loads}} \right)^ (2 - \frac{\sum_{\text{bay}} \text{area}}{\text{area}_{\text{warehouse}}})$$
 *Strategic Note:* We must pack bays with the lowest `price/loads` ratio, and we must pack *as many of them as possible* to maximize the subtracted area term, driving $Q$ as low as possible.
 
 ---

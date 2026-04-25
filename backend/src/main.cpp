@@ -6,6 +6,8 @@
 #include "solvers/jostle_algorithm.hpp"
 #include "solvers/sa.hpp"
 #include "solvers/greedy.hpp"
+#include "solvers/greedy.hpp"
+#include "solvers/jostle_algorithm.hpp"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -14,17 +16,17 @@
 #include <atomic>
 #include <string>
 #include <random>
+#include <csignal>
+#include <cmath>
 
 static constexpr int    NUM_THREADS   = 6;
 static constexpr double TIME_LIMIT_S  = 29.0;
-
-// ─── CLI parsing ─────────────────────────────────────────────────────────────
+std::atomic<bool> early_exit_signal{false};
 
 struct Config {
     std::string caseDir  = "../data/input/Case0";
-    std::string mode     = "parallel";   // "parallel" | "portfolio"
-    std::string algo     = "greedy";     // used in parallel mode
-    std::string outCsv   = "../data/output/solution.csv";
+    std::string mode     = "parallel";   
+    std::string algo     = "greedy";     
 };
 
 static Config parseArgs(int argc, char* argv[]) {
@@ -34,18 +36,11 @@ static Config parseArgs(int argc, char* argv[]) {
         if (arg == "--case"  && i + 1 < argc) cfg.caseDir = argv[++i];
         if (arg == "--mode"  && i + 1 < argc) cfg.mode    = argv[++i];
         if (arg == "--algo"  && i + 1 < argc) cfg.algo    = argv[++i];
-        if (arg == "--out"   && i + 1 < argc) cfg.outCsv  = argv[++i];
     }
     return cfg;
 }
 
-// ─── Algorithm factory ───────────────────────────────────────────────────────
-
-static std::unique_ptr<Algorithm> makeAlgorithm(
-    const std::string& algoName,
-    const StaticState& info,
-    uint64_t seed)
-{
+static std::unique_ptr<Algorithm> makeAlgorithm(const std::string& algoName, const StaticState& info, uint64_t seed) {
     if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
@@ -56,40 +51,29 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
     return nullptr;
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+void signalHandler(int /*signum*/) {
+    std::cout << "\n[INFO] Early exit signal received. Wrapping up threads...\n";
+    early_exit_signal = true;
+}
 
 int main(int argc, char* argv[]) {
     Config cfg = parseArgs(argc, argv);
+    std::signal(SIGINT, signalHandler); 
 
-    // 1. Load problem data
     StaticState staticData;
-    if (!io::parseStaticState(cfg.caseDir, staticData)) {
-        std::cerr << "Failed to load case from: " << cfg.caseDir << "\n";
-        return 1;
-    }
-    std::cout << "Loaded: " << staticData.warehousePolygon.size() << " polygon pts, "
-              << staticData.obstacles.size()   << " obstacles, "
-              << staticData.ceilingRegions.size() << " ceiling regions, "
-              << staticData.bayTypes.size()    << " bay types\n";
+    if (!io::parseStaticState(cfg.caseDir, staticData)) return 1;
 
-    // 2. Build algorithm list
     std::random_device rd;
     std::vector<std::unique_ptr<Algorithm>> algos;
 
     if (cfg.mode == "parallel") {
-        // All threads run the same algorithm with different seeds
-        std::cout << "Mode: parallel  algo: " << cfg.algo << "\n";
         for (int i = 0; i < NUM_THREADS; ++i) {
             uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
             auto algo = makeAlgorithm(cfg.algo, staticData, seed);
             if (algo) algos.push_back(std::move(algo));
         }
     } else {
-        // Portfolio: one thread per algorithm
-        std::cout << "Mode: portfolio\n";
-        const std::vector<std::string> portfolio = {
-            "greedy", "ga_ortho", "ga_angle", "sa", "jostle"
-        };
+        const std::vector<std::string> portfolio = {"greedy", "ga_ortho", "ga_angle", "jostle", "ga_ortho", "ga_angle"};
         for (int i = 0; i < (int)portfolio.size(); ++i) {
             uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
             auto algo = makeAlgorithm(portfolio[i], staticData, seed);
@@ -102,7 +86,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // 3. Spawn threads
     std::atomic<bool> stop_flag{false};
     std::atomic<int> active_threads{0};
     std::vector<std::thread> threads;
@@ -110,27 +93,39 @@ int main(int argc, char* argv[]) {
 
     for (auto& algo : algos) {
         active_threads++;
-        Algorithm* ptr = algo.get();
-        threads.emplace_back([ptr, &stop_flag, &active_threads] { 
+        Algorithm* ptr = algo.get(); {
+        active_threads++;
+        threads.emplace_back([ptr, &stop_flag, &active_threads, &active_threads] { 
+            
             ptr->run(stop_flag); 
             active_threads--;
+        
+            active_threads--; 
         });
     }
+    }
 
-    // 4. Wait for time limit, then signal stop
-    std::this_thread::sleep_for(
-        std::chrono::duration<double>(TIME_LIMIT_S));
+    auto start_time = std::chrono::steady_clock::now();
+    while (true) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration<double>(now - start_time).count() >= TIME_LIMIT_S) {
+            std::cout << "\n[INFO] 29.0s Hard limit reached. Halting.\n";
+            break;
+        }
+        if (early_exit_signal || active_threads == 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
     stop_flag = true;
-
     for (auto& t : threads) t.join();
 
-    // 5. Pick the best solution across all threads
     const Solution* winner = nullptr;
     for (const auto& algo : algos) {
         const Solution& sol = algo->best();
         if (!sol.bays.empty() &&
-            (winner == nullptr || sol.score < winner->score))
+            (winner == nullptr || sol.official_score < winner->official_score)) {
             winner = &sol;
+        }
     }
 
     if (!winner || winner->bays.empty()) {
@@ -138,16 +133,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "Best solution: score=" << winner->score
+    std::cout << "Best solution: score=" << winner->official_score
+              << "  (training_score=" << winner->training_score << ")"
               << "  time=" << winner->timeTaken << "s"
               << "  bays=" << winner->bays.size()
               << "  algorithm=" << winner->producedBy << "\n";
-
-    if (io::writeSolution(cfg.outCsv, *winner)) {
-        std::cout << "Successfully saved solution to: " << cfg.outCsv << "\n";
-    } else {
-        std::cerr << "Failed to save solution to: " << cfg.outCsv << "\n";
-    }
 
     return 0;
 }

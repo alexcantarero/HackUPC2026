@@ -138,28 +138,15 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
     std::vector<Bay> current_state;
     greedyPlacement(current_state);
     
-    // GOAL: Maximize Area, minimize Price.
-    // We compute a score that gets SMALLER as we improve (for updateBest compatibility).
-    auto getJostleScore = [&](const std::vector<Bay>& s) {
-        if (s.empty()) return 1e18;
-        double area_sum = 0;
-        double cost_sum = 0;
-        for (const auto& b : s) {
-            const auto* bt = CollisionChecker::getBayType(b.typeId, &info_);
-            if (bt) {
-                area_sum += bt->width * bt->depth;
-                cost_sum += bt->price / bt->nLoads;
-            }
-        }
-        // Score = Price / (Area^2). 
-        // Denominator grows much faster than numerator when adding bays.
-        // Resulting score decreases as we add bays (correct for minimization).
-        return cost_sum / (area_sum * area_sum + 1.0);
-    };
-
-    double current_score = getJostleScore(current_state);
+    double current_score = evaluateTraining(current_state);
+    
+    bool is_minimization = true; 
+    
     if (!current_state.empty()) {
-        updateBest({current_state, current_score, name(), 0.0});
+        Solution seed;
+        seed.bays = current_state;
+        seed.training_score = current_score;
+        updateBest(seed);
     }
 
     std::uniform_real_distribution<double> move_dist(-50.0, 50.0); 
@@ -205,14 +192,21 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
         }
 
         if (success) {
-            double next_score = getJostleScore(current_state);
-            double delta = next_score - current_score;
+            double next_score = evaluateTraining(current_state);
+            double delta;
+            if (is_minimization) {
+                delta = next_score - current_score;
+            } else {
+                delta = current_score - next_score;
+            }
             
-            // Optimization logic: Minimize our internal efficiency-based score
-            if (delta <= 0 || (temp > 1e-6 && prob_dist(rng_) < std::exp(-delta / (current_score * temp)))) {
+            if (delta <= 0 || (temp > 1e-9 && prob_dist(rng_) < std::exp(-delta / temp))) {
                 current_score = next_score;
-                if (delta < 0) {
-                    updateBest({current_state, current_score, name(), 0.0});
+                if (delta <= 0) {
+                    Solution sol;
+                    sol.bays = current_state;
+                    calculateMetrics(sol); // Populates training and official score
+                    updateBest(std::move(sol));
                 }
             } else {
                 // Revert

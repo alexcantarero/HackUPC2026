@@ -1,5 +1,7 @@
 #include "score.hpp"
+#include "collision.hpp"
 #include <cmath>
+#include <limits>
 
 double warehouseArea(const std::vector<Point2D>& polygon) {
     double area = 0.0;
@@ -12,26 +14,36 @@ double warehouseArea(const std::vector<Point2D>& polygon) {
     return std::fabs(area) / 2.0;
 }
 
-double computeScore(const std::vector<Bay>& bays,
-                    const StaticState& info,
-                    double wh_area) {
+// The Monotonic Objective (Q_new) to smoothly guide the algorithms
+double computeTrainingScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area) {
     if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
-
-    double sum_ratio = 0.0;
-    double sum_area  = 0.0;
-    
+    double sum_ratio = 0.0, sum_area = 0.0;
     for (const auto& bay : bays) {
-        for (const auto& bt : info.bayTypes) {
-            if (bt.id == bay.typeId) {
-                sum_ratio += (bt.price / bt.nLoads); // Summing the ratios
-                sum_area  += (bt.width * bt.depth);
-                break;
-            }
+        const BayType* bt = CollisionChecker::getBayType(bay.typeId, &info);
+        if (bt) {
+            sum_ratio += (bt->price / bt->nLoads);
+            sum_area  += (bt->width * bt->depth);
         }
     }
+    if (sum_area <= 0.0) return std::numeric_limits<double>::max();
+    double area_fraction = wh_area / sum_area;
+    return sum_ratio * (area_fraction * area_fraction);
+}
+
+// The Judge's Exact Formula (Q_old)
+double computeOfficialScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area) {
+    if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
+    double sum_ratio = 0.0, sum_area = 0.0;
+    for (const auto& bay : bays) {
+        const BayType* bt = CollisionChecker::getBayType(bay.typeId, &info);
+        if (bt) {
+            sum_ratio += (bt->price / bt->nLoads);
+            sum_area  += (bt->width * bt->depth);
+        }
+    }
+    if (sum_ratio <= 0.0) return std::numeric_limits<double>::max();
     
-    // As sum_area approaches wh_area, exponent approaches 1.0
-    double exponent = 2.0 - (sum_area / wh_area); 
-    
+    double exponent = 2.0 - (sum_area / wh_area);
+    if (exponent < 1.0) exponent = 1.0; // Safety cap
     return std::pow(sum_ratio, exponent);
 }
