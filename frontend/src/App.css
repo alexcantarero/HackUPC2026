@@ -87,6 +87,115 @@
   background: #35614e;
 }
 
+.solver-secondary {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f3f6fc;
+  padding: 9px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.solver-comparison-actions {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.solver-comparison-actions p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: rgba(243, 246, 252, 0.72);
+}
+
+.solver-comparison {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.solver-comparison-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(243, 246, 252, 0.76);
+  font-size: 0.88rem;
+}
+
+.solver-comparison-card {
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(34, 43, 66, 0.98), rgba(18, 22, 35, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+}
+
+.solver-comparison-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.solver-comparison-card h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.solver-comparison-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(40, 138, 237, 0.18);
+  border: 1px solid rgba(40, 138, 237, 0.34);
+  color: #a9d3ff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.solver-comparison-status {
+  color: rgba(243, 246, 252, 0.7);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.solver-comparison-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.solver-comparison-metrics div {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.solver-comparison-metrics span {
+  color: rgba(243, 246, 252, 0.65);
+  font-size: 0.78rem;
+}
+
+.solver-comparison-metrics strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.solver-comparison-note {
+  margin: 10px 0 0;
+  font-size: 0.86rem;
+  color: rgba(243, 246, 252, 0.78);
+}
+
 .solver-error {
   margin-top: 10px;
   color: #ff8570;

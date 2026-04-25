@@ -29,6 +29,18 @@ type SolveResponse = {
   durationMs: number;
 };
 
+type AlgorithmKey = "greedy" | "sa" | "genetic";
+
+type MockComparisonResult = {
+  algorithm: AlgorithmKey;
+  title: string;
+  status: string;
+  bestScore: string;
+  runtimeMs: string;
+  outputFile: string;
+  note: string;
+};
+
 // --- FILE LOADERS ---
 const warehouseFiles = import.meta.glob(
   "../../data/input/Case*/warehouse.csv",
@@ -125,6 +137,42 @@ function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
       return [xRaw, yRaw] as [number, number];
     })
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+}
+
+function createMockComparisonResults(
+  caseNumber: number,
+): MockComparisonResult[] {
+  const caseOffset = caseNumber * 137;
+
+  return [
+    {
+      algorithm: "greedy",
+      title: "Greedy",
+      status: "Finished first",
+      bestScore: String(18240 - caseOffset),
+      runtimeMs: `${420 + (caseOffset % 80)} ms`,
+      outputFile: `solution_case${caseNumber}_greedy.csv`,
+      note: "Fast baseline, good for quick comparisons.",
+    },
+    {
+      algorithm: "sa",
+      title: "Simulated Annealing",
+      status: "Finished second",
+      bestScore: String(17980 - caseOffset),
+      runtimeMs: `${1180 + (caseOffset % 140)} ms`,
+      outputFile: `solution_case${caseNumber}_sa.csv`,
+      note: "Balances speed and exploration.",
+    },
+    {
+      algorithm: "genetic",
+      title: "Genetic",
+      status: "Finished last",
+      bestScore: String(17650 - caseOffset),
+      runtimeMs: `${2680 + (caseOffset % 220)} ms`,
+      outputFile: `solution_case${caseNumber}_genetic.csv`,
+      note: "Best mock score in this preview.",
+    },
+  ];
 }
 
 function GapBox({
@@ -267,6 +315,9 @@ export default function App() {
   const [isSubmittingSolver, setIsSubmittingSolver] = useState(false);
   const [solverError, setSolverError] = useState("");
   const [solverResult, setSolverResult] = useState<SolveResponse | null>(null);
+  const [comparisonResults, setComparisonResults] = useState<
+    MockComparisonResult[]
+  >([]);
 
   const toggleGaps = useCallback(() => {
     setShowGaps((prev) => !prev);
@@ -294,6 +345,10 @@ export default function App() {
     if (isSubmittingSolver) return;
     setShowSolverPanel(false);
   }, [isSubmittingSolver]);
+
+  const runMockComparison = useCallback(() => {
+    setComparisonResults(createMockComparisonResults(caseNumber));
+  }, [caseNumber]);
 
   const submitSolverRequest = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -498,7 +553,7 @@ export default function App() {
       {showSolverPanel && (
         <div className="solver-panel" role="dialog" aria-label="Solver upload">
           <div className="solver-panel-header">
-            <h2>Send 4 CSV files to solver</h2>
+            <h2>Send 4 CSV files to three solvers</h2>
             <button
               type="button"
               className="solver-close"
@@ -556,6 +611,64 @@ export default function App() {
               {isSubmittingSolver ? "Running solver..." : "Upload and run"}
             </button>
           </form>
+          <div className="solver-comparison-actions">
+            <button
+              type="button"
+              className="solver-secondary"
+              onClick={runMockComparison}
+            >
+              Mock compare greedy / sa / genetic
+            </button>
+            <p>
+              This is a mock preview of a parallel run summary. Each card below
+              represents one algorithm result.
+            </p>
+          </div>
+          <div
+            className="solver-comparison"
+            aria-label="Mock comparison results"
+          >
+            {comparisonResults.length === 0 ? (
+              <div className="solver-comparison-empty">
+                No comparison results yet. Use the button above to preview the
+                three algorithm cards.
+              </div>
+            ) : (
+              comparisonResults.map((result) => (
+                <article
+                  key={result.algorithm}
+                  className="solver-comparison-card"
+                >
+                  <div className="solver-comparison-card-header">
+                    <div>
+                      <span className="solver-comparison-badge">
+                        {result.algorithm}
+                      </span>
+                      <h3>{result.title}</h3>
+                    </div>
+                    <span className="solver-comparison-status">
+                      {result.status}
+                    </span>
+                  </div>
+                  <div className="solver-comparison-metrics">
+                    <div>
+                      <span>Best score</span>
+                      <strong>{result.bestScore}</strong>
+                    </div>
+                    <div>
+                      <span>Runtime</span>
+                      <strong>{result.runtimeMs}</strong>
+                    </div>
+                    <div>
+                      <span>Output</span>
+                      <strong>{result.outputFile}</strong>
+                    </div>
+                  </div>
+                  <p className="solver-comparison-note">{result.note}</p>
+                </article>
+              ))
+            )}
+          </div>
           {solverError && <p className="solver-error">{solverError}</p>}
           {solverResult && (
             <div className="solver-result">
