@@ -139,14 +139,11 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
     greedyPlacement(current_state);
     
     double current_score = evaluateTraining(current_state);
-    
-    bool is_minimization = true; 
-    
     if (!current_state.empty()) {
         Solution seed;
         seed.bays = current_state;
-        seed.training_score = current_score;
-        updateBest(seed);
+        calculateMetrics(seed);
+        updateBest(std::move(seed));
     }
 
     std::uniform_real_distribution<double> move_dist(-50.0, 50.0); 
@@ -193,19 +190,14 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
 
         if (success) {
             double next_score = evaluateTraining(current_state);
-            double delta;
-            if (is_minimization) {
-                delta = next_score - current_score;
-            } else {
-                delta = current_score - next_score;
-            }
+            double delta = next_score - current_score;
             
             if (delta <= 0 || (temp > 1e-9 && prob_dist(rng_) < std::exp(-delta / temp))) {
                 current_score = next_score;
                 if (delta <= 0) {
                     Solution sol;
                     sol.bays = current_state;
-                    calculateMetrics(sol); // Populates training and official score
+                    calculateMetrics(sol);
                     updateBest(std::move(sol));
                 }
             } else {
