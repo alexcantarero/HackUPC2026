@@ -337,9 +337,10 @@ export default function App() {
     [],
   );
 
-  const openSolverPanel = useCallback(() => {
-    setShowSolverPanel(true);
-  }, []);
+  const toggleSolverPanel = useCallback(() => {
+    if (isSubmittingSolver) return;
+    setShowSolverPanel((prev) => !prev);
+  }, [isSubmittingSolver]);
 
   const closeSolverPanel = useCallback(() => {
     if (isSubmittingSolver) return;
@@ -547,7 +548,7 @@ export default function App() {
         onCaseChange={setCaseNumber}
         onToggleCameraView={toggleCameraView}
         onToggleGaps={toggleGaps}
-        onOpenSolverPanel={openSolverPanel}
+        onOpenSolverPanel={toggleSolverPanel}
         showGaps={showGaps}
       />
       {showSolverPanel && (
