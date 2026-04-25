@@ -3,9 +3,6 @@
 #include "solvers/algorithm.hpp"
 #include "solvers/ga_angle.hpp"
 #include "solvers/ga_ortho.hpp"
-#include "solvers/jostle_algorithm.hpp"
-#include "solvers/sa.hpp"
-#include "solvers/greedy.hpp"
 #include "solvers/greedy.hpp"
 #include "solvers/jostle_algorithm.hpp"
 #include <iostream>
@@ -44,10 +41,8 @@ static std::unique_ptr<Algorithm> makeAlgorithm(const std::string& algoName, con
     if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
-    if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
     if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, -1);
-
-    std::cerr << "[warn] Unknown algorithm '" << algoName << "'. No solver created.\n";
+    std::cerr << "[warn] Unknown algorithm '" << algoName << "'.\n";
     return nullptr;
 }
 
@@ -73,7 +68,7 @@ int main(int argc, char* argv[]) {
             if (algo) algos.push_back(std::move(algo));
         }
     } else {
-        const std::vector<std::string> portfolio = {"greedy", "ga_ortho", "ga_angle", "jostle", "ga_ortho", "ga_angle"};
+        const std::vector<std::string> portfolio = {"greedy", "ga_ortho", "ga_angle", "jostle"};
         for (int i = 0; i < (int)portfolio.size(); ++i) {
             uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
             auto algo = makeAlgorithm(portfolio[i], staticData, seed);
@@ -81,10 +76,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (algos.empty()) {
-        std::cerr << "No algorithms available.\n";
-        return 1;
-    }
+    if (algos.empty()) return 1;
 
     std::atomic<bool> stop_flag{false};
     std::atomic<int> active_threads{0};
@@ -93,16 +85,10 @@ int main(int argc, char* argv[]) {
 
     for (auto& algo : algos) {
         active_threads++;
-        Algorithm* ptr = algo.get(); {
-        active_threads++;
-        threads.emplace_back([ptr, &stop_flag, &active_threads, &active_threads] { 
-            
-            ptr->run(stop_flag); 
-            active_threads--;
-        
+        threads.emplace_back([&algo, &stop_flag, &active_threads] { 
+            algo->run(stop_flag); 
             active_threads--; 
         });
-    }
     }
 
     auto start_time = std::chrono::steady_clock::now();
@@ -113,7 +99,7 @@ int main(int argc, char* argv[]) {
             break;
         }
         if (early_exit_signal || active_threads == 0) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     stop_flag = true;
