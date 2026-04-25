@@ -24,6 +24,7 @@ type SolveResponse = {
   bestScore: number | null;
   outputFileName: string | null;
   outputCsv: string | null;
+  csvInputs: Partial<Record<RequiredCsvField, string>>;
   exitCode: number;
   durationMs: number;
 };
@@ -385,23 +386,39 @@ export default function App() {
     });
   }, [setPerspectiveView, setTopView]);
 
+  const activeCsvInputs = useMemo(() => {
+    return {
+      warehouse:
+        solverResult?.csvInputs?.warehouse ??
+        getCaseCsv(warehouseFiles, caseNumber, "warehouse"),
+      ceiling:
+        solverResult?.csvInputs?.ceiling ??
+        getCaseCsv(ceilingFiles, caseNumber, "ceiling"),
+      obstacles:
+        solverResult?.csvInputs?.obstacles ??
+        getCaseCsv(obstacleFiles, caseNumber, "obstacles"),
+      types_of_bays:
+        solverResult?.csvInputs?.types_of_bays ??
+        getCaseCsv(bayFiles, caseNumber, "types_of_bays"),
+      expected_output:
+        solverResult?.outputCsv ??
+        getCaseCsv(layoutFiles, caseNumber, "expected_output"),
+    };
+  }, [caseNumber, solverResult]);
+
   const sceneGeometry = useMemo(
     () =>
       buildSceneGeometry({
-        warehouseOutlineCsv: getCaseCsv(
-          warehouseFiles,
-          caseNumber,
-          "warehouse",
-        ),
-        ceilingCsv: getCaseCsv(ceilingFiles, caseNumber, "ceiling"),
-        obstaclesCsv: getCaseCsv(obstacleFiles, caseNumber, "obstacles"),
+        warehouseOutlineCsv: activeCsvInputs.warehouse,
+        ceilingCsv: activeCsvInputs.ceiling,
+        obstaclesCsv: activeCsvInputs.obstacles,
       }),
-    [caseNumber],
+    [activeCsvInputs],
   );
 
   // Re-added: Calculate center of the warehouse
   const warehouseCenter = useMemo(() => {
-    const outlineCsv = getCaseCsv(warehouseFiles, caseNumber, "warehouse");
+    const outlineCsv = activeCsvInputs.warehouse;
     const points = parseWarehouseOutlineCsv(outlineCsv);
 
     if (points.length === 0) {
@@ -424,19 +441,19 @@ export default function App() {
       centerX: ((minX + maxX) / 2) * WORLD_SCALE,
       centerY: ((minY + maxY) / 2) * WORLD_SCALE,
     };
-  }, [caseNumber]);
+  }, [activeCsvInputs.warehouse]);
 
   // Re-added: Parse bay dimensions
   const bayData = useMemo(() => {
-    const csv = getCaseCsv(bayFiles, caseNumber, "types_of_bays");
+    const csv = activeCsvInputs.types_of_bays;
     return parseBaysCsv(csv);
-  }, [caseNumber]);
+  }, [activeCsvInputs.types_of_bays]);
 
   // Re-added: Parse expected output locations
   const layoutData = useMemo(() => {
-    const csv = getCaseCsv(layoutFiles, caseNumber, "expected_output");
+    const csv = activeCsvInputs.expected_output;
     return parseLayoutCsv(csv);
-  }, [caseNumber]);
+  }, [activeCsvInputs.expected_output]);
 
   useEffect(() => {
     return () => {

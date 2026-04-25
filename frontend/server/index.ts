@@ -20,6 +20,8 @@ const requiredFileFields = [
   "types_of_bays",
 ] as const;
 
+type RequiredField = (typeof requiredFileFields)[number];
+
 type SolveResponse = {
   ok: boolean;
   message: string;
@@ -28,6 +30,7 @@ type SolveResponse = {
   bestScore: number | null;
   outputFileName: string | null;
   outputCsv: string | null;
+  csvInputs: Record<RequiredField, string>;
   exitCode: number;
   durationMs: number;
 };
@@ -130,6 +133,14 @@ app.post(
     const includeOutputCsv = normalizeBoolean(req.body.includeOutputCsv);
     const algo = typeof req.body.algo === "string" ? req.body.algo : "greedy";
     const mode = typeof req.body.mode === "string" ? req.body.mode : "parallel";
+    const csvInputs = {} as Record<RequiredField, string>;
+
+    for (const field of requiredFileFields) {
+      const file = uploadedFiles?.[field]?.[0];
+      if (file) {
+        csvInputs[field] = file.buffer.toString("utf8");
+      }
+    }
 
     let caseDir = "";
     const startedAt = Date.now();
@@ -215,6 +226,7 @@ app.post(
         bestScore: parseBestScore(runResult.stdout),
         outputFileName,
         outputCsv,
+        csvInputs,
         exitCode: runResult.exitCode,
         durationMs: Date.now() - startedAt,
       };
