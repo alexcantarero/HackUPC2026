@@ -13,7 +13,7 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #0d1117;
+  background-color: #111;
   font-family: 'Inter', -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -22,7 +22,7 @@ body {
   width: 100vw;
   height: 100vh;
   position: relative;
-  background-color: #0d1117;
+  background-color: #111;
 }
 
 .canvas-container {
@@ -88,7 +88,6 @@ body {
   top: 92px;
   right: 24px;
   width: 320px;
-  padding: 24px;
 }
 
 .solver-results-panel {
@@ -99,14 +98,10 @@ body {
 }
 
 .solver-panel-header {
-  padding: 0 0 20px;
+  padding: 24px 20px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.solver-results-panel .solver-panel-header {
-  padding: 24px 20px 20px;
 }
 
 .solver-panel-header h2 {
@@ -120,26 +115,31 @@ body {
 
 /* --- FORM --- */
 .solver-form {
+  padding: 0 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
 .solver-form label {
+  display: block;
   font-size: 0.7rem;
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
+  margin-bottom: 8px;
 }
 
 .solver-form input[type="file"] {
-  margin-top: 4px;
-  padding: 8px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-primary);
   font-size: 0.75rem;
+  display: block;
 }
 
 .solver-form button[type="submit"] {

@@ -29,7 +29,7 @@ export default function WarehouseScene({
 }: WarehouseSceneProps) {
   return (
     <Suspense fallback={null}>
-      <color attach="background" args={["#0d1117"]} />
+      <color attach="background" args={["#7e7e7e"]} />
       <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
       <ambientLight intensity={3} />
 
