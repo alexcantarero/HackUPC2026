@@ -1,5 +1,5 @@
 import "./App.css";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
 import { useRef, useEffect, useMemo } from "react";
 import * as THREE from "three";
@@ -35,6 +35,46 @@ const WORLD_SCALE = 0.004;
 const FLOOR_THICKNESS = 0.25;
 const CEILING_THICKNESS = 0.2;
 const FLOOR_Y = -2;
+
+// --- NEW FADING DOLLHOUSE ELEMENT ---
+// This handles both the smooth opacity fade AND the Backface culling!
+function FadingDollhouseElement({
+  geometry,
+  positionY,
+  thresholdY,
+}: {
+  geometry: THREE.BufferGeometry;
+  positionY: number;
+  thresholdY: number;
+}) {
+  const matRef = useRef<THREE.MeshStandardMaterial>(null);
+
+  useFrame(({ camera }, delta) => {
+    if (matRef.current) {
+      // Target opacity: 1 (fully visible) if camera is below the roof, 0 if above
+      const targetOpacity = camera.position.y < FLOOR_Y + thresholdY ? 1 : 0;
+
+      // Smoothly animate the current opacity towards the target opacity
+      matRef.current.opacity = THREE.MathUtils.damp(
+        matRef.current.opacity,
+        targetOpacity,
+        4, // Damp speed (higher = faster fade)
+        delta,
+      );
+    }
+  });
+
+  return (
+    <mesh position={[0, positionY, 0]} geometry={geometry}>
+      <meshStandardMaterial
+        ref={matRef}
+        color="#d6d6d6"
+        side={THREE.BackSide}
+        transparent={true} // Mandatory to allow opacity fading
+      />
+    </mesh>
+  );
+}
 
 function parseOutline(input: string): Array<[number, number]> {
   return input
@@ -225,8 +265,13 @@ export default function App() {
 
     const maxRawX = Math.max(...points.map(([x]) => x));
     const minRawX = Math.min(...points.map(([x]) => x));
+
     const ceilingParts: Array<{ geometry: THREE.BufferGeometry; y: number }> =
       [];
+    const ceilingWalls: Array<{
+      geometry: THREE.BufferGeometry;
+      topY: number;
+    }> = [];
     const walls: THREE.BufferGeometry[] = [];
     const perimeterWalls = new Map<
       string,
@@ -276,8 +321,14 @@ export default function App() {
               const bottomY = Math.min(currentHeightY, nextHeightY);
               const topY = Math.max(currentHeightY, nextHeightY);
 
-              // Flipped start and end to correct the normal for BackSide culling
-              walls.push(buildWallGeometry(end, start, bottomY, topY));
+              const isSteppingUp = currentHeightY < nextHeightY;
+              const pt1 = isSteppingUp ? end : start;
+              const pt2 = isSteppingUp ? start : end;
+
+              ceilingWalls.push({
+                geometry: buildWallGeometry(pt1, pt2, bottomY, topY),
+                topY: topY,
+              });
             }
           }
         }
@@ -326,7 +377,6 @@ export default function App() {
       return h * WORLD_SCALE - CEILING_THICKNESS / 2;
     };
 
-    // Swap obstaclesRawInput with obstaclesCsv here:
     const parsedObstacles = obstaclesCsv
       .split("\n")
       .map((l) => l.trim())
@@ -342,7 +392,6 @@ export default function App() {
     }> = [];
 
     for (const { x, y, w, d } of parsedObstacles) {
-      // Find the center of the box to accurately check ceiling height
       const centerXRaw = x + w / 2;
       const centerYRaw = y + d / 2;
 
@@ -355,35 +404,29 @@ export default function App() {
 
       const geom = new THREE.BoxGeometry(width3D, height3D, depth3D);
 
-      // Map 2D center coordinates to 3D space
       const cx = centerXRaw * WORLD_SCALE - centerX;
       const cz = -(centerYRaw * WORLD_SCALE - centerY);
       const cy = bottomY + height3D / 2;
 
       obstacles.push({ geometry: geom, position: [cx, cy, cz] });
     }
-    // ----------------------------------------
 
     return {
       floor: geometry,
       ceilingParts,
+      ceilingWalls,
       walls,
-      obstacles, // Export obstacles
+      obstacles,
     };
   }, []);
 
   useEffect(() => {
     return () => {
       sceneGeometry.floor.dispose();
-      for (const part of sceneGeometry.ceilingParts) {
-        part.geometry.dispose();
-      }
-      for (const wall of sceneGeometry.walls) {
-        wall.dispose();
-      }
-      for (const obs of sceneGeometry.obstacles) {
-        obs.geometry.dispose();
-      }
+      for (const part of sceneGeometry.ceilingParts) part.geometry.dispose();
+      for (const cw of sceneGeometry.ceilingWalls) cw.geometry.dispose();
+      for (const wall of sceneGeometry.walls) wall.dispose();
+      for (const obs of sceneGeometry.obstacles) obs.geometry.dispose();
     };
   }, [sceneGeometry]);
 
@@ -409,14 +452,24 @@ export default function App() {
           <meshStandardMaterial color="#a3a3a3" />
         </mesh>
 
+        {/* --- Render main flat ceiling roofs with the fade --- */}
         {sceneGeometry.ceilingParts.map((part, index) => (
-          <mesh
+          <FadingDollhouseElement
             key={`ceiling-${index}`}
-            position={[0, FLOOR_Y + part.y, 0]}
             geometry={part.geometry}
-          >
-            <meshStandardMaterial color="#d6d6d6" side={THREE.BackSide} />
-          </mesh>
+            positionY={FLOOR_Y + part.y}
+            thresholdY={part.y}
+          />
+        ))}
+
+        {/* --- Render the vertical ceiling steps with the fade --- */}
+        {sceneGeometry.ceilingWalls.map((cw, index) => (
+          <FadingDollhouseElement
+            key={`ceiling-wall-${index}`}
+            geometry={cw.geometry}
+            positionY={FLOOR_Y}
+            thresholdY={cw.topY}
+          />
         ))}
 
         {sceneGeometry.walls.map((wall, index) => (
@@ -429,7 +482,6 @@ export default function App() {
           </mesh>
         ))}
 
-        {/* --- Render the new obstacles --- */}
         {sceneGeometry.obstacles.map((obs, index) => (
           <mesh
             key={`obstacle-${index}`}
@@ -440,7 +492,6 @@ export default function App() {
             ]}
             geometry={obs.geometry}
           >
-            {/* FrontSide ensures no backface culling, leaving them entirely solid */}
             <meshStandardMaterial color="#a8a8a8" side={THREE.FrontSide} />
           </mesh>
         ))}
