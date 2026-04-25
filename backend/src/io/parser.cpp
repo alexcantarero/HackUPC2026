@@ -78,4 +78,20 @@ bool parseStaticState(const std::string& directoryPath, StaticState& out) {
     return true;
 }
 
+bool writeSolution(const std::string& filePath, const Solution& solution) {
+    std::ofstream file(filePath);
+    if (!file.is_open()) return false;
+
+    // Typically solutions include headers, here assuming: id, x, y, rotation
+    file << "type_id,x,y,rotation\n";
+    for (const auto& bay : solution.bays) {
+        file << bay.typeId << ","
+             << bay.x << ","
+             << bay.y << ","
+             << bay.rotation << "\n";
+    }
+
+    return true;
+}
+
 } // namespace io

@@ -27,6 +27,7 @@ struct Config {
     std::string caseDir  = "../data/input/Case0";
     std::string mode     = "parallel";   // "parallel" | "portfolio"
     std::string algo     = "greedy";     // used in parallel mode
+    std::string outCsv   = "solution.csv";
 };
 
 static Config parseArgs(int argc, char* argv[]) {
@@ -36,6 +37,7 @@ static Config parseArgs(int argc, char* argv[]) {
         if (arg == "--case"  && i + 1 < argc) cfg.caseDir = argv[++i];
         if (arg == "--mode"  && i + 1 < argc) cfg.mode    = argv[++i];
         if (arg == "--algo"  && i + 1 < argc) cfg.algo    = argv[++i];
+        if (arg == "--out"   && i + 1 < argc) cfg.outCsv  = argv[++i];
     }
     return cfg;
 }
@@ -135,10 +137,15 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "Best solution: score=" << winner->score
+              << "  time=" << winner->timeTaken << "s"
               << "  bays=" << winner->bays.size()
               << "  algorithm=" << winner->producedBy << "\n";
 
-    // TODO: write winner to solution.csv via io::writeSolution()
+    if (io::writeSolution(cfg.outCsv, *winner)) {
+        std::cout << "Successfully saved solution to: " << cfg.outCsv << "\n";
+    } else {
+        std::cerr << "Failed to save solution to: " << cfg.outCsv << "\n";
+    }
 
     return 0;
 }

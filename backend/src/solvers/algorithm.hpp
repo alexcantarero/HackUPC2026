@@ -6,6 +6,7 @@
 #include <random>
 #include <string>
 #include <algorithm>
+#include <chrono>
 
 /**
  * @brief Abstract base class for all placement algorithms.
@@ -33,6 +34,7 @@ public:
         : info_(info)
         , rng_(seed)
         , grid_(largestBayDim(info))
+        , startTime_(std::chrono::steady_clock::now())
     {}
 
     virtual ~Algorithm() = default;
@@ -91,6 +93,7 @@ protected:
      */
     void updateBest(Solution candidate) {
         candidate.producedBy = name();
+        candidate.timeTaken = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime_).count();
         if (candidate.score < best_.score)
             best_ = std::move(candidate);
     }
@@ -103,6 +106,7 @@ protected:
     std::mt19937_64    rng_;   ///< per-thread RNG — seed in constructor
     SpatialGrid        grid_;  ///< broad-phase grid for the current layout
     Solution           best_;  ///< best solution found so far
+    std::chrono::steady_clock::time_point startTime_; ///< timestamp when algorithm was constructed
 
 private:
     /** Returns the largest bay footprint dimension to use as grid cell size. */
