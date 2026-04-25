@@ -5,7 +5,8 @@ SRCDIR   = src
 
 SRCS = $(SRCDIR)/main.cpp \
        $(SRCDIR)/core/collision.cpp \
-       $(SRCDIR)/io/parser.cpp
+       $(SRCDIR)/io/parser.cpp \
+       $(SRCDIR)/solvers/ga_ortho.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 
