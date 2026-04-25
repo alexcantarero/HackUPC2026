@@ -45,7 +45,7 @@ export default function App() {
   }, [isSubmitting]);
 
   const setTopView = useCallback(() => {
-    cameraControlsRef.current?.setLookAt(0, 248, 0, 0, -2, 0, true);
+    cameraControlsRef.current?.setLookAt(0, 150, 0, 0, -2, 0, true);
   }, []);
 
   const setPerspectiveView = useCallback(() => {
@@ -132,6 +132,7 @@ export default function App() {
 
       {showSolverPanel && (
         <SolverPanel
+          onClose={toggleSolverPanel}
           onSubmit={submitRequest}
           onFileChange={setUploadFile}
           isSubmitting={isSubmitting}

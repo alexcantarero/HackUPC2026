@@ -2,6 +2,7 @@ import React from "react";
 import type { RequiredCsvField } from "../../types/solver";
 
 interface SolverPanelProps {
+  onClose: () => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onFileChange: (field: RequiredCsvField, file: File | null) => void;
   isSubmitting: boolean;
@@ -9,6 +10,7 @@ interface SolverPanelProps {
 }
 
 export default function SolverPanel({
+  onClose,
   onSubmit,
   onFileChange,
   isSubmitting,
@@ -18,6 +20,13 @@ export default function SolverPanel({
     <div className="solver-panel" role="dialog" aria-label="Solver upload">
       <div className="solver-panel-header">
         <h2>Solver</h2>
+        <button
+          className="solver-close"
+          onClick={onClose}
+          title="Close panel"
+        >
+          ×
+        </button>
       </div>
       <form className="solver-form" onSubmit={onSubmit}>
         <label>
