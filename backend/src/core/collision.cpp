@@ -77,9 +77,14 @@ OBB CollisionChecker::createObstacleOBB(const Obstacle& obs) {
     OBB obb;
     obb.corners[0] = {obs.x,             obs.y};
     obb.corners[1] = {obs.x + obs.width, obs.y};
-    obb.corners[2] = {obs.x + obs.width, obs.y + obs.depth}; // fixed: was obs.height
-    obb.corners[3] = {obs.x,             obs.y + obs.depth}; // fixed: was obs.height
-    obb.center     = {obs.x + obs.width / 2.0, obs.y + obs.depth / 2.0};
+    // Top-Right
+    obb.corners[2] = {obs.x + obs.width, obs.y + obs.depth};
+    // Top-Left
+    obb.corners[3] = {obs.x, obs.y + obs.depth};
+
+    obb.center.x = obs.x + obs.width / 2.0;
+    obb.center.y = obs.y + obs.depth / 2.0;
+
     return obb;
 }
 
