@@ -9,6 +9,15 @@ public:
     void run(std::atomic<bool>& stop_flag) override;
     std::string name() const override;
 
+    // Mutation operators
+    bool translateBay(std::vector<Bay>& state, int bayIndex, double deltaX, double deltaY);
+    bool rotateBay(std::vector<Bay>& state, int bayIndex, double deltaAngle);
+    bool swapBays(std::vector<Bay>& state, int bayIndex1, int bayIndex2);
+    bool changeBayType(std::vector<Bay>& state, int bayIndex, int newTypeId);
+
+    // Full state validation helper
+    bool isValidState(const std::vector<Bay>& state);
+
 private:
     int maxIterations_;
 };
