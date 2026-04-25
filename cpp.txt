@@ -1,4 +1,181 @@
 ============================================================
+File: backend/Makefile
+============================================================
+
+CXX      = g++
+CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -pthread -MMD -MP
+TARGET   = bin/solver
+SRCDIR   = src
+
+SRCS = $(SRCDIR)/main.cpp \
+        $(SRCDIR)/core/collision.cpp \
+        $(SRCDIR)/core/score.cpp \
+        $(SRCDIR)/io/parser.cpp \
+        $(SRCDIR)/solvers/greedy.cpp \
+        $(SRCDIR)/solvers/genetic_algorithm.cpp \
+        $(SRCDIR)/solvers/ga_angle.cpp \
+        $(SRCDIR)/solvers/ga_ortho.cpp \
+        $(SRCDIR)/solvers/jostle_algorithm.cpp \
+        $(SRCDIR)/solvers/sa.cpp
+
+OBJS = $(SRCS:.cpp=.o)
+DEPS = $(OBJS:.o=.d)
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+run: $(TARGET)
+	./$(TARGET) --case ../data/input/Case0
+
+# ── Tests ──────────────────────────────────────────────────────────────────
+
+test_collision: tests/test_collision.cpp \
+                $(SRCDIR)/core/collision.cpp \
+                $(SRCDIR)/io/parser.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_collision $^
+	./bin/test_collision
+
+test_score: tests/test_score.cpp \
+            $(SRCDIR)/core/score.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_score $^
+	./bin/test_score
+
+test_greedy: tests/test_greedy.cpp \
+              $(SRCDIR)/core/collision.cpp \
+              $(SRCDIR)/core/score.cpp \
+              $(SRCDIR)/solvers/greedy.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_greedy $^
+	./bin/test_greedy
+
+test_sa: tests/test_sa.cpp \
+          $(SRCDIR)/core/collision.cpp \
+          $(SRCDIR)/core/score.cpp \
+          $(SRCDIR)/solvers/greedy.cpp \
+          $(SRCDIR)/solvers/sa.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -o bin/test_sa $^
+	./bin/test_sa
+
+test: test_collision test_score test_greedy test_sa
+
+clean:
+	rm -f $(OBJS) $(DEPS) \
+	      bin/solver bin/test_collision bin/test_score bin/test_greedy bin/test_sa
+
+.PHONY: all run test test_collision test_score test_greedy test_sa clean
+
+# Must be after all targets so the first target remains 'all'
+-include $(DEPS)
+
+
+============================================================
+File: backend/hpo.py
+============================================================
+
+import optuna
+import subprocess
+import re
+import sys
+import argparse
+
+# --- CONFIGURATION ---
+SOLVER_PATH = "./bin/solver"
+CASE_DIR = "../data/input/Case0" # Assumes hpo.py is run from inside `backend/`
+TIME_LIMIT = 30.0  # Slightly longer (5s) so the GA has time to finish Gen 0
+
+def suggest_ga_params(trial):
+    """Defines the hyperparameter search space for Genetic Algorithms."""
+    pop_size = trial.suggest_int("pop_size", 10, 60)
+    
+    return {
+        "--pop_size": pop_size,
+        "--elite_count": trial.suggest_int("elite_count", 1, max(1, pop_size // 3)),
+        "--tournament_size": trial.suggest_int("tournament_size", 2, 8),
+        "--immigrants": trial.suggest_int("immigrants", 0, max(0, pop_size // 4)),
+        "--swap_max": trial.suggest_float("swap_max", 0.1, 0.9),
+        "--swap_base": trial.suggest_float("swap_base", 0.01, 0.4),
+        "--scramble_max": trial.suggest_float("scramble_max", 0.1, 0.9),
+        "--scramble_base": trial.suggest_float("scramble_base", 0.01, 0.4),
+        "--replace_max": trial.suggest_float("replace_max", 0.1, 0.9),
+        "--replace_base": trial.suggest_float("replace_base", 0.01, 0.4)
+    }
+
+ALGO_SPACES = {
+    "ga_ortho": suggest_ga_params,
+    "ga_angle": suggest_ga_params,
+}
+
+def objective(trial, algo_name):
+    params = ALGO_SPACES[algo_name](trial)
+
+    cmd =[
+        SOLVER_PATH, 
+        "--mode", "parallel", 
+        "--algo", algo_name, 
+        "--case", CASE_DIR, 
+        "--time", str(TIME_LIMIT) 
+    ]
+    
+    for k, v in params.items():
+        cmd.extend([k, str(v)])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=TIME_LIMIT + 2.0)
+        output = result.stdout
+        
+        # ERROR CHECKING: If it crashed, print WHY it crashed!
+        if result.returncode != 0:
+            print(f"\n[Error] Solver crashed with return code {result.returncode}")
+            print(f"Stderr: {result.stderr.strip()}")
+            return float('inf')
+            
+    except subprocess.TimeoutExpired:
+        print("[Warn] Process timed out entirely! The C++ code ignored the stop_flag.")
+        return float('inf') 
+
+    match = re.search(r"Best solution: score=([0-9.eE+-]+)", output)
+    if match:
+        score = float(match.group(1))
+        if score == float('inf') or score > 1e10:
+            return float('inf')
+        return score
+    else:
+        print(f"\n[Error] Could not find 'Best solution: score=' in output.")
+        print(f"Output was: {output.strip()}")
+        return float('inf')
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--algo", type=str, default="ga_ortho", help="Algorithm to optimize")
+    parser.add_argument("--trials", type=int, default=100, help="Number of trials")
+    args = parser.parse_args()
+
+    if args.algo not in ALGO_SPACES:
+        print(f"Error: Algorithm '{args.algo}' not defined.")
+        sys.exit(1)
+
+    print(f"Starting Optuna HPO for {args.algo} ({args.trials} trials, {TIME_LIMIT}s per trial)...")
+    
+    study = optuna.create_study(direction="minimize")
+    study.optimize(lambda trial: objective(trial, args.algo), n_trials=args.trials)
+
+    print(f"\n{'='*40}")
+    print(f"🥇 BEST PARAMETERS FOR {args.algo.upper()} 🥇")
+    print(f"{'='*40}")
+    print(f"Best Score: {study.best_value}")
+    for k, v in study.best_params.items():
+        print(f"  --{k} {v}")
+
+============================================================
 File: backend/src/core/collision.cpp
 ============================================================
 
@@ -536,7 +713,10 @@ File: backend/src/core/score.cpp
 ============================================================
 
 #include "score.hpp"
+#include "collision.hpp"
 #include <cmath>
+#include <limits>
+#include <iostream>
 
 double warehouseArea(const std::vector<Point2D>& polygon) {
     double area = 0.0;
@@ -549,28 +729,46 @@ double warehouseArea(const std::vector<Point2D>& polygon) {
     return std::fabs(area) / 2.0;
 }
 
-double computeScore(const std::vector<Bay>& bays,
-                    const StaticState& info,
-                    double wh_area) {
+double computeTrainingScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area) {
     if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
-
-    double sum_ratio = 0.0;
-    double sum_area  = 0.0;
-    
+    double sum_ratio = 0.0, sum_area = 0.0;
     for (const auto& bay : bays) {
-        for (const auto& bt : info.bayTypes) {
-            if (bt.id == bay.typeId) {
-                sum_ratio += (bt.price / bt.nLoads); // Summing the ratios
-                sum_area  += (bt.width * bt.depth);
-                break;
-            }
+        const BayType* bt = CollisionChecker::getBayType(bay.typeId, &info);
+        if (bt) {
+            sum_ratio += (bt->price / bt->nLoads);
+            sum_area  += (bt->width * bt->depth);
         }
     }
+    if (sum_area <= 0.0) return std::numeric_limits<double>::max();
+    double area_fraction = wh_area / sum_area;
+    double score = sum_ratio * (area_fraction * area_fraction);
     
-    // As sum_area approaches wh_area, exponent approaches 1.0
-    double exponent = 2.0 - (sum_area / wh_area); 
+    // Protect against NaN crashes in std::sort
+    if (std::isnan(score)) {
+        std::cout << "Warning: NaN score encountered. sum_ratio=" << sum_ratio << ", sum_area=" << sum_area << ", wh_area=" << wh_area << "\n"; 
+        return std::numeric_limits<double>::max();
+    }
+    return score;
+}
+
+double computeOfficialScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area) {
+    if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
+    double sum_ratio = 0.0, sum_area = 0.0;
+    for (const auto& bay : bays) {
+        const BayType* bt = CollisionChecker::getBayType(bay.typeId, &info);
+        if (bt) {
+            sum_ratio += (bt->price / bt->nLoads);
+            sum_area  += (bt->width * bt->depth);
+        }
+    }
+    if (sum_ratio <= 0.0) return std::numeric_limits<double>::max();
     
-    return std::pow(sum_ratio, exponent);
+    double exponent = 2.0 - (sum_area / wh_area);
+    if (exponent < 1.0) exponent = 1.0; 
+    
+    double score = std::pow(sum_ratio, exponent);
+    if (std::isnan(score)) return std::numeric_limits<double>::max();
+    return score;
 }
 
 ============================================================
@@ -584,11 +782,8 @@ File: backend/src/core/score.hpp
 // Polygon area via the shoelace formula. Pass the warehousePolygon.
 double warehouseArea(const std::vector<Point2D>& polygon);
 
-// Q = (Σ_bay price/nLoads)^2 − (Σ_bay width*depth / wh_area).
-// Lower is better. Pass the result of warehouseArea() as wh_area.
-double computeScore(const std::vector<Bay>& bays,
-                    const StaticState& info,
-                    double wh_area);
+double computeTrainingScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area);
+double computeOfficialScore(const std::vector<Bay>& bays, const StaticState& info, double wh_area);
 
 
 ============================================================
@@ -648,11 +843,11 @@ struct Bay {
 
 struct Solution {
     std::vector<Bay> bays;
-    double      score      = std::numeric_limits<double>::max(); ///< Q value; lower is better
-    std::string producedBy = "";                                 ///< algorithm name, for logging
-    double      timeTaken  = 0.0;                                ///< time (seconds) since algorithm start
+    double      training_score = std::numeric_limits<double>::max(); // Q_new
+    double      official_score = std::numeric_limits<double>::max(); // Q_old
+    std::string producedBy     = "";                                 
+    double      timeTaken      = 0.0;                                
 };
-
 
 ============================================================
 File: backend/src/io/parser.cpp
@@ -796,6 +991,8 @@ File: backend/src/main.cpp
 #include "solvers/algorithm.hpp"
 #include "solvers/ga_angle.hpp"
 #include "solvers/ga_ortho.hpp"
+#include "solvers/greedy.hpp"
+#include "solvers/jostle_algorithm.hpp"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -804,23 +1001,34 @@ File: backend/src/main.cpp
 #include <atomic>
 #include <string>
 #include <random>
-
+#include <csignal>
+#include <cmath>
 // ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
 #include "solvers/greedy.hpp"
-// #include "solvers/sa.hpp"
-#include "solvers/jostle_algorithm.hpp"
+#include "solvers/sa.hpp"
+// #include "solvers/jostle.hpp"
+#include "solvers/ga_angle.hpp"
+#include "solvers/ga_ortho.hpp"
 // #include "solvers/vns.hpp"
 
 static constexpr int    NUM_THREADS   = 6;
-static constexpr double TIME_LIMIT_S  = 29.0;
+std::atomic<bool> early_exit_signal{false};
 
-// ─── CLI parsing ─────────────────────────────────────────────────────────────
+// Change the global time limit to be dynamic
+double g_time_limit_s = 29.0;
 
 struct Config {
     std::string caseDir  = "../data/input/Case0";
-    std::string mode     = "parallel";   // "parallel" | "portfolio"
-    std::string algo     = "greedy";     // used in parallel mode
-    std::string outCsv   = "solution.csv";
+    std::string mode     = "parallel";   
+    std::string algo     = "greedy";     
+    // We will parse GA params here as well!
+    int pop_size = 24;
+    int elite_count = 4;
+    int tournament_size = 3;
+    int immigrants = 2;
+    double swap_base = 0.25, swap_max = 0.55;
+    double scramble_base = 0.10, scramble_max = 0.35;
+    double replace_base = 0.15, replace_max = 0.40;
 };
 
 static Config parseArgs(int argc, char* argv[]) {
@@ -830,64 +1038,90 @@ static Config parseArgs(int argc, char* argv[]) {
         if (arg == "--case"  && i + 1 < argc) cfg.caseDir = argv[++i];
         if (arg == "--mode"  && i + 1 < argc) cfg.mode    = argv[++i];
         if (arg == "--algo"  && i + 1 < argc) cfg.algo    = argv[++i];
-        if (arg == "--out"   && i + 1 < argc) cfg.outCsv  = argv[++i];
+        if (arg == "--time"  && i + 1 < argc) g_time_limit_s = std::stod(argv[++i]);
+        
+        // Parse Optuna GA params
+        if (arg == "--pop_size" && i+1 < argc) cfg.pop_size = std::stoi(argv[++i]);
+        if (arg == "--elite_count" && i+1 < argc) cfg.elite_count = std::stoi(argv[++i]);
+        if (arg == "--tournament_size" && i+1 < argc) cfg.tournament_size = std::stoi(argv[++i]);
+        if (arg == "--immigrants" && i+1 < argc) cfg.immigrants = std::stoi(argv[++i]);
+        
+        if (arg == "--swap_base" && i+1 < argc) cfg.swap_base = std::stod(argv[++i]);
+        if (arg == "--swap_max" && i+1 < argc) cfg.swap_max = std::stod(argv[++i]);
+        if (arg == "--scramble_base" && i+1 < argc) cfg.scramble_base = std::stod(argv[++i]);
+        if (arg == "--scramble_max" && i+1 < argc) cfg.scramble_max = std::stod(argv[++i]);
+        if (arg == "--replace_base" && i+1 < argc) cfg.replace_base = std::stod(argv[++i]);
+        if (arg == "--replace_max" && i+1 < argc) cfg.replace_max = std::stod(argv[++i]);
     }
     return cfg;
 }
+
+// NOTE: Update the while loop condition in main() to use g_time_limit_s instead of TIME_LIMIT_S
+// if (elapsed.count() >= g_time_limit_s) { break; }
 
 // ─── Algorithm factory ───────────────────────────────────────────────────────
 
 static std::unique_ptr<Algorithm> makeAlgorithm(
     const std::string& algoName,
     const StaticState& info,
-    uint64_t seed)
+    uint64_t seed,
+    const Config& cfg = {})
 {
     // Uncomment each line as the solver is implemented:
     if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
-    if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
-    if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
-    // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
-    if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, -1);
+    if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
+    if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
+    // if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, -1); // Run until time limit
     // if (algoName == "vns")      return std::make_unique<Vns>(info, seed);
+
+    if (algoName == "ga_ortho" || algoName == "ga_angle") {
+        GeneticAlgorithm::GAParams ga_params;
+        ga_params.population_size = cfg.pop_size;
+        ga_params.elite_count = cfg.elite_count;
+        ga_params.tournament_size = cfg.tournament_size;
+        ga_params.immigrants_per_generation = cfg.immigrants;
+        ga_params.swap_rate_base = cfg.swap_base;
+        ga_params.swap_rate_max = std::max(cfg.swap_base, cfg.swap_max); // Prevent max < base
+        ga_params.scramble_rate_base = cfg.scramble_base;
+        ga_params.scramble_rate_max = std::max(cfg.scramble_base, cfg.scramble_max);
+        ga_params.replace_rate_base = cfg.replace_base;
+        ga_params.replace_rate_max = std::max(cfg.replace_base, cfg.replace_max);
+        
+        std::unique_ptr<GeneticAlgorithm> ga;
+        if (algoName == "ga_ortho") ga = std::make_unique<GAOrtho>(info, seed);
+        else ga = std::make_unique<GAAngle>(info, seed);
+        
+        ga->setParams(ga_params);
+        return ga;
+    }
 
     std::cerr << "[warn] Unknown algorithm '" << algoName << "'. No solver created.\n";
     return nullptr;
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+void signalHandler(int /*signum*/) {
+    std::cout << "\n[INFO] Early exit signal received. Wrapping up threads...\n";
+    early_exit_signal = true;
+}
 
 int main(int argc, char* argv[]) {
     Config cfg = parseArgs(argc, argv);
+    std::signal(SIGINT, signalHandler); 
 
-    // 1. Load problem data
     StaticState staticData;
-    if (!io::parseStaticState(cfg.caseDir, staticData)) {
-        std::cerr << "Failed to load case from: " << cfg.caseDir << "\n";
-        return 1;
-    }
-    std::cout << "Loaded: " << staticData.warehousePolygon.size() << " polygon pts, "
-              << staticData.obstacles.size()   << " obstacles, "
-              << staticData.ceilingRegions.size() << " ceiling regions, "
-              << staticData.bayTypes.size()    << " bay types\n";
+    if (!io::parseStaticState(cfg.caseDir, staticData)) return 1;
 
-    // 2. Build algorithm list
     std::random_device rd;
     std::vector<std::unique_ptr<Algorithm>> algos;
 
     if (cfg.mode == "parallel") {
-        // All threads run the same algorithm with different seeds
-        std::cout << "Mode: parallel  algo: " << cfg.algo << "\n";
         for (int i = 0; i < NUM_THREADS; ++i) {
             uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
             auto algo = makeAlgorithm(cfg.algo, staticData, seed);
             if (algo) algos.push_back(std::move(algo));
         }
     } else {
-        // Portfolio: one thread per algorithm
-        std::cout << "Mode: portfolio\n";
-        const std::vector<std::string> portfolio = {
-            "greedy", "ga_ortho", "ga_angle", "sa", "jostle", "vns"
-        };
+        const std::vector<std::string> portfolio = {"greedy", "ga_ortho", "ga_angle", "jostle", "sa"};
         for (int i = 0; i < (int)portfolio.size(); ++i) {
             uint64_t seed = rd() ^ (static_cast<uint64_t>(i) << 32);
             auto algo = makeAlgorithm(portfolio[i], staticData, seed);
@@ -895,54 +1129,66 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (algos.empty()) {
-        std::cerr << "No algorithms available. Implement solvers and uncomment them in makeAlgorithm().\n";
-        return 1;
-    }
+    if (algos.empty()) return 1;
 
     // 3. Spawn threads
-    std::atomic<bool> stop_flag{false};
+    std::atomic<bool> stop_flag{false}; // atomic means safe to set from main thread and read from algo threads without mutex
     std::vector<std::thread> threads;
     threads.reserve(algos.size());
 
-    for (auto& algo : algos)
-        threads.emplace_back([&algo, &stop_flag] { algo->run(stop_flag); });
-
-    // 4. Wait for time limit, then signal stop
-    std::this_thread::sleep_for(
-        std::chrono::duration<double>(TIME_LIMIT_S));
+    for (auto& algo : algos) {
+        Algorithm* p = algo.get();
+        threads.emplace_back([p, &stop_flag] { p->run(stop_flag); });
+    }
+    // 4. Wait for time limit (only for anytime algorithms), then signal stop
+    bool anyAnytime = std::any_of(algos.begin(), algos.end(),
+        [](const auto& a) { return a->isAnytime(); });
+    if (anyAnytime){
+        std::cout<< "About to start anytime algorithms. Will run for " << g_time_limit_s << " seconds.\n";
+        std::this_thread::sleep_for(std::chrono::duration<double>(g_time_limit_s));
+    }
     stop_flag = true;
 
     for (auto& t : threads) t.join();
-
-    // 5. Pick the best solution across all threads
     const Solution* winner = nullptr;
     for (const auto& algo : algos) {
         const Solution& sol = algo->best();
         if (!sol.bays.empty() &&
-            (winner == nullptr || sol.score < winner->score))
+            (winner == nullptr || sol.official_score < winner->official_score)) {
             winner = &sol;
+        }
     }
 
-    if (!winner || winner->bays.empty()) {
-        std::cerr << "No valid solution found.\n";
+    if (!winner || winner->bays.empty() || winner->official_score >= std::numeric_limits<double>::max() / 2.0) {
+        std::cerr << "No valid solution found within the time limit.\n";
         return 1;
     }
 
-    std::cout << "Best solution: score=" << winner->score
+    // --- SAFE CASTING TO PREVENT CSV FILENAME CRASH ---
+    std::string score_str;
+    if (winner->official_score >= 1e10) {
+        score_str = "inf";
+    } else {
+        score_str = std::to_string(static_cast<int>(std::round(winner->official_score / 1000.0))) + "k";
+    }
+    
+    std::string ts = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    std::string finalCsvName = "../../data/output/" + ts + "_" + winner->producedBy + "_" + score_str + ".csv";
+
+    std::cout << "Best solution: score=" << winner->official_score
+              << "  (training_score=" << winner->training_score << ")"
               << "  time=" << winner->timeTaken << "s"
               << "  bays=" << winner->bays.size()
               << "  algorithm=" << winner->producedBy << "\n";
 
-    if (io::writeSolution(cfg.outCsv, *winner)) {
-        std::cout << "Successfully saved solution to: " << cfg.outCsv << "\n";
+    if (io::writeSolution(finalCsvName, *winner)) {
+        std::cout << "Successfully saved solution to: " << finalCsvName << "\n";
     } else {
-        std::cerr << "Failed to save solution to: " << cfg.outCsv << "\n";
+        std::cerr << "Failed to save solution to: " << finalCsvName << "\n";
     }
 
     return 0;
 }
-
 
 ============================================================
 File: backend/src/solvers/algorithm.hpp
@@ -976,6 +1222,7 @@ public:
 
     virtual void run(std::atomic<bool>& stop_flag) = 0;
     virtual std::string name() const = 0;
+    virtual bool isAnytime() const { return true; }
     const Solution& best() const { return best_; }
 
 protected:
@@ -992,25 +1239,39 @@ protected:
         return d;
     }
 
-    double calculateScore(const std::vector<Bay>& bays) const {
-        return computeScore(bays, info_, warehouse_area_);
+    void calculateMetrics(Solution& sol) const {
+        sol.training_score = computeTrainingScore(sol.bays, info_, warehouse_area_);
+        sol.official_score = computeOfficialScore(sol.bays, info_, warehouse_area_);
+    }
+
+    double evaluateTraining(const std::vector<Bay>& bays) const {
+        return computeTrainingScore(bays, info_, warehouse_area_);
     }
 
     // Safely blanket the warehouse with a grid of anchors to prevent corner-starvation
-    std::vector<Point2D> generateSafeAnchors() const {
+    std::vector<Point2D> generateSafeAnchors(double step_size = 0.0) const {
         std::vector<Point2D> anchors;
         if (info_.warehousePolygon.empty()) return anchors;
         
-        double min_x = info_.warehousePolygon[0].x, max_x = min_x;
-        double min_y = info_.warehousePolygon[0].y, max_y = min_y;
-        for (const auto& pt : info_.warehousePolygon) {
-            min_x = std::min(min_x, pt.x); max_x = std::max(max_x, pt.x);
-            min_y = std::min(min_y, pt.y); max_y = std::max(max_y, pt.y);
+        // Dynamically calculate step size if not provided
+        if (step_size <= 0.0) {
+            step_size = 1e9;
+            for (const auto& bt : info_.bayTypes) {
+                step_size = std::min({step_size, bt.width, bt.depth});
+            }
+            step_size /= 2.0; // Half the smallest dimension guarantees no missed gaps
+            if (step_size < 100.0) step_size = 100.0; // Sane lower bound
         }
         
-        // A 400x400 grid. The +0.1 prevents ray-casting from failing on perfect boundaries.
-        for (double x = min_x; x <= max_x; x += 400.0) {
-            for (double y = min_y; y <= max_y; y += 400.0) {
+        double bounds_min_x = info_.warehousePolygon[0].x, bounds_max_x = bounds_min_x;
+        double bounds_min_y = info_.warehousePolygon[0].y, bounds_max_y = bounds_min_y;
+        for (const auto& pt : info_.warehousePolygon) {
+            bounds_min_x = std::min(bounds_min_x, pt.x); bounds_max_x = std::max(bounds_max_x, pt.x);
+            bounds_min_y = std::min(bounds_min_y, pt.y); bounds_max_y = std::max(bounds_max_y, pt.y);
+        }
+        
+        for (double x = bounds_min_x; x <= bounds_max_x; x += step_size) {
+            for (double y = bounds_min_y; y <= bounds_max_y; y += step_size) {
                 anchors.push_back({x + 0.1, y + 0.1});
             }
         }
@@ -1034,7 +1295,9 @@ protected:
     void updateBest(Solution candidate) {
         candidate.producedBy = name();
         candidate.timeTaken = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime_).count();
-        if (candidate.score < best_.score) {
+        
+        // Algorithms optimize using the TRAINING score (Q_new)
+        if (candidate.training_score < best_.training_score && !candidate.bays.empty()) {
             best_ = std::move(candidate);
         }
     }
@@ -1072,21 +1335,26 @@ Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome, std::atomic<
     constexpr double kGoldenAngle = 137.50776405003785;
 
     if (chromosome.empty()) {
-        decoded.score = calculateScore(decoded.bays);
+        calculateMetrics(decoded);
         return decoded;
     }
 
-    std::vector<Point2D> anchors = generateSafeAnchors(); // From parent class!
+    std::vector<Point2D> anchors = generateSafeAnchors();
     SpatialGrid decode_grid(defaultCellSize());
+    bool is_first_bay = true;
 
     for (int bay_id : chromosome) {
-        if (stop_flag.load()) break; // HARD BREAK: Instantly yield thread on 29.0s!
+        if (stop_flag.load()) break; 
 
         if (getBayTypeById(bay_id) == nullptr) continue;
 
+        // --- BULLETPROOF SORT: Integer Quantization to prevent SIGABRT ---
         std::sort(anchors.begin(), anchors.end(),[](const Point2D& lhs, const Point2D& rhs) {
-            if (std::abs(lhs.y - rhs.y) > 1e-5) return lhs.y < rhs.y;
-            return lhs.x < rhs.x;
+            auto quantize =[](double v) { return static_cast<long long>(std::round(v * 100.0)); };
+            long long q_ly = quantize(lhs.y);
+            long long q_ry = quantize(rhs.y);
+            if (q_ly != q_ry) return q_ly < q_ry;
+            return quantize(lhs.x) < quantize(rhs.x);
         });
 
         bool placed = false;
@@ -1112,6 +1380,12 @@ Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome, std::atomic<
 
         if (!placed) continue;
 
+        if (is_first_bay) {
+            anchors.clear();
+            for (const auto& point : info_.warehousePolygon) anchors.push_back(point);
+            is_first_bay = false;
+        }
+
         decoded.bays.push_back(best_candidate);
         OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
         decode_grid.insertBay(static_cast<int>(decoded.bays.size() - 1), solid);
@@ -1128,7 +1402,7 @@ Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome, std::atomic<
         if (anchors.size() > static_cast<size_t>(kMaxAnchors)) anchors.resize(kMaxAnchors);
     }
 
-    decoded.score = calculateScore(decoded.bays);
+    calculateMetrics(decoded);
     return decoded;
 }
 
@@ -1154,6 +1428,7 @@ File: backend/src/solvers/ga_ortho.cpp
 #include "ga_ortho.hpp"
 #include <algorithm>
 #include <limits>
+#include <cmath>
 
 namespace {
 void expandBounds(const OBB& obb, double& min_x, double& max_x, double& min_y, double& max_y) {
@@ -1176,23 +1451,27 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
     constexpr int kMaxAnchors = 256;
 
     if (chromosome.empty()) {
-        decoded.score = calculateScore(decoded.bays);
+        calculateMetrics(decoded);
         return decoded;
     }
 
-    std::vector<Point2D> anchors = generateSafeAnchors(); // From parent class! Safe from corner starvation.
+    std::vector<Point2D> anchors = generateSafeAnchors(); 
     SpatialGrid decode_grid(defaultCellSize());
+    bool is_first_bay = true; // SPEEDUP FLAG
 
     for (const auto& bay_id : chromosome) {
-        if (stop_flag.load()) break; // HARD BREAK: Instantly yield thread on 29.0s!
+        if (stop_flag.load()) break; 
 
         const BayType* bay_type = getBayTypeById(bay_id);
         if (bay_type == nullptr) continue;
 
-        // Keep anchors sorted Bottom-Left
+        // --- BULLETPROOF SORT: Integer Quantization to prevent SIGABRT ---
         std::sort(anchors.begin(), anchors.end(),[](const Point2D& lhs, const Point2D& rhs) {
-            if (std::abs(lhs.y - rhs.y) > 1e-5) return lhs.y < rhs.y;
-            return lhs.x < rhs.x;
+            auto quantize =[](double v) { return static_cast<long long>(std::round(v * 100.0)); };
+            long long q_ly = quantize(lhs.y);
+            long long q_ry = quantize(rhs.y);
+            if (q_ly != q_ry) return q_ly < q_ry;
+            return quantize(lhs.x) < quantize(rhs.x);
         });
 
         bool placed = false;
@@ -1204,13 +1483,20 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
                 if (CollisionChecker::isValidPlacement(candidate, decoded.bays, &info_, &decode_grid)) {
                     best_candidate = candidate;
                     placed = true;
-                    break; // Speedup
+                    break;
                 }
             }
-            if (placed) break; // Speedup
+            if (placed) break;
         }
 
         if (!placed) continue;
+
+        // MASSIVE SPEEDUP: Prune the grid anchors once we're securely bootstrapped
+        if (is_first_bay) {
+            anchors.clear();
+            for (const auto& point : info_.warehousePolygon) anchors.push_back(point);
+            is_first_bay = false;
+        }
 
         decoded.bays.push_back(best_candidate);
         OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
@@ -1228,7 +1514,7 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
         if (anchors.size() > static_cast<size_t>(kMaxAnchors)) anchors.resize(kMaxAnchors);
     }
 
-    decoded.score = calculateScore(decoded.bays);
+    calculateMetrics(decoded);
     return decoded;
 }
 
@@ -1252,11 +1538,11 @@ File: backend/src/solvers/genetic_algorithm.cpp
 ============================================================
 
 #include "genetic_algorithm.hpp"
+#include "greedy.hpp" // Required to run the Greedy Solver for our seed
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <random>
-#include <unordered_set>
 #include <iostream>
 
 namespace {
@@ -1264,7 +1550,7 @@ struct Individual {
     GeneticAlgorithm::Chromosome chromosome;
     Solution solution;
 };
-}  // namespace
+}  
 
 GeneticAlgorithm::GeneticAlgorithm(const StaticState& info, uint64_t seed)
     : Algorithm(info, seed) {}
@@ -1276,29 +1562,46 @@ void GeneticAlgorithm::run(std::atomic<bool>& stop_flag) {
     std::vector<Individual> population;
     population.reserve(static_cast<size_t>(hp.population_size));
     
-    std::cout << "[DEBUG] " << name() << " starting Generation 0...\n";
-    
-    // Initialize Population
+    // ==========================================
+    // 1. GENERATION 0: HEURISTIC & GREEDY SEEDING
+    // ==========================================
     for (int i = 0; i < hp.population_size; ++i) {
-        if (stop_flag.load()) break; // Hard exit check
-        Chromosome chromosome = randomChromosome();
+        if (stop_flag.load()) break; 
+        
+        Chromosome chromosome;
+        if (i == 0)      chromosome = generateGreedyChromosome();     // The Ultimate Seed
+        else if (i == 1) chromosome = generateHeuristicChromosome(0); // Area Seed
+        else if (i == 2) chromosome = generateHeuristicChromosome(1); // Profit Seed
+        else if (i == 3) chromosome = generateHeuristicChromosome(2); // Hybrid Seed
+        else             chromosome = randomChromosome();             // Random
+
         Solution solution = decodeChromosome(chromosome, stop_flag);
+        
+        // ==========================================
+        // 2. INTRON TRUNCATION (Massive Speedup)
+        // Padding increased to +20 so the GA doesn't choke on bad tail genes.
+        // ==========================================
+        const size_t padding = 20;
+        if (solution.bays.size() > 0 && chromosome.size() > solution.bays.size() + padding) {
+            chromosome.resize(solution.bays.size() + padding);
+        }
+
         population.push_back({std::move(chromosome), std::move(solution)});
         updateBest(population.back().solution);
     }
 
-    auto better_individual = [this](const Individual& lhs, const Individual& rhs) {
+    if (population.empty()) return; 
+
+    auto better_individual =[this](const Individual& lhs, const Individual& rhs) {
         return isBetterSolution(lhs.solution, rhs.solution);
     };
 
-    auto tournament_select = [this, &population, &better_individual, &hp]() {
+    auto tournament_select =[this, &population, &better_individual, &hp]() {
         std::uniform_int_distribution<int> pick_dist(0, static_cast<int>(population.size()) - 1);
         int best_idx = pick_dist(rng_);
         for (int i = 1; i < hp.tournament_size; ++i) {
             int idx = pick_dist(rng_);
-            if (better_individual(population[idx], population[best_idx])) {
-                best_idx = idx;
-            }
+            if (better_individual(population[idx], population[best_idx])) best_idx = idx;
         }
         return best_idx;
     };
@@ -1314,129 +1617,179 @@ void GeneticAlgorithm::run(std::atomic<bool>& stop_flag) {
         const Solution previous_global_best = best_;
         updateBest(generation_best);
         
-        if (best_.score < previous_global_best.score) {
-            stagnation = 0;
-            // Removed the debug print here so it doesn't spam, 
-            // updateBest in the parent class handles the live terminal output!
-        } else {
-            ++stagnation;
-        }
+        if (best_.training_score < previous_global_best.training_score) stagnation = 0;
+        else ++stagnation;
 
         const double stagnation_factor = std::min(1.0, static_cast<double>(stagnation) / 40.0);
         const double swap_rate = hp.swap_rate_base + (hp.swap_rate_max - hp.swap_rate_base) * stagnation_factor;
         const double scramble_rate = hp.scramble_rate_base + (hp.scramble_rate_max - hp.scramble_rate_base) * stagnation_factor;
+        const double replace_rate = hp.replace_rate_base + (hp.replace_rate_max - hp.replace_rate_base) * stagnation_factor;
 
         std::vector<Individual> next_population;
         next_population.reserve(static_cast<size_t>(hp.population_size));
 
-        // Elitism
         const int elite_count = std::min(hp.elite_count, static_cast<int>(population.size()));
-        for (int i = 0; i < elite_count; ++i) {
-            next_population.push_back(population[i]);
-        }
+        for (int i = 0; i < elite_count; ++i) next_population.push_back(population[i]);
 
-        // Breeding
         const int target_children = hp.population_size - hp.immigrants_per_generation;
         while (static_cast<int>(next_population.size()) < target_children) {
-            if (stop_flag.load()) break; // Hard exit check
+            if (stop_flag.load()) break; 
             
             const int parent_a = tournament_select();
             const int parent_b = tournament_select();
 
-            Chromosome child = crossoverOX1(population[parent_a].chromosome, population[parent_b].chromosome);
+            Chromosome child = crossoverTwoPoint(population[parent_a].chromosome, population[parent_b].chromosome);
 
             if (prob_dist(rng_) < swap_rate) mutateSwap(child);
             if (prob_dist(rng_) < scramble_rate) mutateScramble(child);
+            if (prob_dist(rng_) < replace_rate) mutateReplace(child);
 
             Solution child_solution = decodeChromosome(child, stop_flag);
+            
+            const size_t padding = 20;
+            if (child_solution.bays.size() > 0 && child.size() > child_solution.bays.size() + padding) {
+                child.resize(child_solution.bays.size() + padding);
+            }
+
             next_population.push_back({std::move(child), std::move(child_solution)});
         }
 
-        // Immigrants (Randoms)
         while (static_cast<int>(next_population.size()) < hp.population_size) {
-            if (stop_flag.load()) break; // Hard exit check
+            if (stop_flag.load()) break; 
             Chromosome immigrant = randomChromosome();
             Solution immigrant_solution = decodeChromosome(immigrant, stop_flag);
+            
+            const size_t padding = 20;
+            if (immigrant_solution.bays.size() > 0 && immigrant.size() > immigrant_solution.bays.size() + padding) {
+                immigrant.resize(immigrant_solution.bays.size() + padding);
+            }
+
             next_population.push_back({std::move(immigrant), std::move(immigrant_solution)});
         }
+        
+        if (stop_flag.load()) break;
 
-        for (const auto& individual : next_population) {
-            updateBest(individual.solution);
-        }
-
+        for (const auto& individual : next_population) updateBest(individual.solution);
         population = std::move(next_population);
+
+        // ==========================================
+        // DEBUG: Print generation status
+        // ==========================================
+        if (generation % 100 == 0) {
+            std::cout << "[DEBUG] " << name() << " Gen " << generation 
+                      << " | Official Score: " << static_cast<int>(best_.official_score)
+                      << " | Bays: " << best_.bays.size() << "\n";
+        }
         generation++;
     }
-    
-    std::cout << "[DEBUG] " << name() << " safely returning at Gen " << generation << ".\n";
 }
 
-GeneticAlgorithm::Chromosome GeneticAlgorithm::randomChromosome() {
-    Chromosome chromosome;
+// ---------------------------------------------------------
+// NEW: Greedy Seed Generator
+// ---------------------------------------------------------
+GeneticAlgorithm::Chromosome GeneticAlgorithm::generateGreedyChromosome() {
+    // Run one quick pass of the greedy solver to get an awesome starting sequence
+    GreedySolver greedy(info_, rng_());
+    greedy.fillPass();
+    const Solution& greedy_sol = greedy.best();
     
-    double min_area = std::numeric_limits<double>::max();
-    for (const auto& bt : info_.bayTypes) {
-        min_area = std::min(min_area, bt.width * bt.depth);
+    Chromosome chromosome;
+    chromosome.reserve(greedy_sol.bays.size() + 50);
+    
+    // Copy the exact sequence of bays the greedy algorithm successfully packed
+    for (const auto& bay : greedy_sol.bays) {
+        chromosome.push_back(bay.typeId);
     }
     
-    int max_bays = static_cast<int>(std::ceil(warehouse_area_ / min_area));
-    if (max_bays <= 0) max_bays = 1;
-
-    chromosome.reserve(max_bays);
-    std::uniform_int_distribution<int> dist(0, static_cast<int>(info_.bayTypes.size()) - 1);
-    for (int i = 0; i < max_bays; ++i) {
-        chromosome.push_back(info_.bayTypes[dist(rng_)].id);
+    // Pad the end with our highly-profitable random generator so the GA can still expand
+    Chromosome rand_chrom = randomChromosome();
+    if (chromosome.size() < rand_chrom.size()) {
+        chromosome.insert(chromosome.end(), rand_chrom.begin() + chromosome.size(), rand_chrom.end());
     }
     
     return chromosome;
 }
 
-GeneticAlgorithm::Chromosome GeneticAlgorithm::crossoverOX1(const Chromosome& p1, const Chromosome& p2) {
+// ---------------------------------------------------------
+// Heuristic Seed Generator
+// ---------------------------------------------------------
+GeneticAlgorithm::Chromosome GeneticAlgorithm::generateHeuristicChromosome(int type) {
+    Chromosome chromosome = randomChromosome();
+    
+    if (type == 0) {
+        std::sort(chromosome.begin(), chromosome.end(),[this](int a, int b) {
+            const BayType* ba = getBayTypeById(a);
+            const BayType* bb = getBayTypeById(b);
+            return (ba->width * ba->depth) > (bb->width * bb->depth);
+        });
+    } else if (type == 1) {
+        std::sort(chromosome.begin(), chromosome.end(), [this](int a, int b) {
+            const BayType* ba = getBayTypeById(a);
+            const BayType* bb = getBayTypeById(b);
+            return (ba->price / ba->nLoads) < (bb->price / bb->nLoads);
+        });
+    } else if (type == 2) {
+        std::sort(chromosome.begin(), chromosome.end(), [this](int a, int b) {
+            const BayType* ba = getBayTypeById(a);
+            const BayType* bb = getBayTypeById(b);
+            double eff_a = (ba->width * ba->depth) / (ba->price / ba->nLoads);
+            double eff_b = (bb->width * bb->depth) / (bb->price / bb->nLoads);
+            return eff_a > eff_b;
+        });
+    }
+    return chromosome;
+}
+
+GeneticAlgorithm::Chromosome GeneticAlgorithm::randomChromosome() {
+    Chromosome chromosome;
+    double min_area = std::numeric_limits<double>::max();
+    std::vector<double> weights;
+    for (const auto& bt : info_.bayTypes) {
+        min_area = std::min(min_area, bt.width * bt.depth);
+        weights.push_back(bt.nLoads / bt.price); // High weight = highly profitable
+    }
+    
+    int max_bays = static_cast<int>(std::ceil(warehouse_area_ / min_area));
+    if (max_bays <= 0) max_bays = 1;
+
+    std::discrete_distribution<int> bay_dist(weights.begin(), weights.end());
+    chromosome.reserve(max_bays);
+    for (int i = 0; i < max_bays; ++i) {
+        chromosome.push_back(info_.bayTypes[bay_dist(rng_)].id);
+    }
+    return chromosome;
+}
+
+GeneticAlgorithm::Chromosome GeneticAlgorithm::crossoverTwoPoint(const Chromosome& p1, const Chromosome& p2) {
     if (p1.empty() || p1.size() != p2.size()) return p1;
-
-    const int n = static_cast<int>(p1.size());
-    Chromosome child(n, -1);
-
+    int n = static_cast<int>(p1.size());
+    Chromosome child = p1;
     std::uniform_int_distribution<int> dist(0, n - 1);
-    int start = dist(rng_);
-    int end = dist(rng_);
-    if (start > end) std::swap(start, end);
-
-    std::unordered_set<int> copied;
-    for (int i = start; i <= end; ++i) {
-        child[i] = p1[i];
-        copied.insert(p1[i]);
-    }
-
-    int child_idx = (end + 1) % n;
-    int p2_idx = (end + 1) % n;
-    for (int i = 0; i < n; ++i) {
-        const int candidate = p2[p2_idx];
-        if (copied.find(candidate) == copied.end()) {
-            child[child_idx] = candidate;
-            child_idx = (child_idx + 1) % n;
-        }
-        p2_idx = (p2_idx + 1) % n;
-    }
-
+    int pt1 = dist(rng_), pt2 = dist(rng_);
+    if (pt1 > pt2) std::swap(pt1, pt2);
+    for (int i = pt1; i <= pt2; ++i) child[i] = p2[i];
     return child;
 }
 
 void GeneticAlgorithm::mutateSwap(Chromosome& chromosome) {
     if (chromosome.size() < 2) return;
     std::uniform_int_distribution<int> dist(0, static_cast<int>(chromosome.size()) - 1);
-    const int idx1 = dist(rng_);
-    const int idx2 = dist(rng_);
-    std::swap(chromosome[idx1], chromosome[idx2]);
+    std::swap(chromosome[dist(rng_)], chromosome[dist(rng_)]);
 }
 
 void GeneticAlgorithm::mutateScramble(Chromosome& chromosome) {
     if (chromosome.size() < 2) return;
     std::uniform_int_distribution<int> dist(0, static_cast<int>(chromosome.size()) - 1);
-    int start = dist(rng_);
-    int end = dist(rng_);
+    int start = dist(rng_), end = dist(rng_);
     if (start > end) std::swap(start, end);
     std::shuffle(chromosome.begin() + start, chromosome.begin() + end + 1, rng_);
+}
+
+void GeneticAlgorithm::mutateReplace(Chromosome& chromosome) {
+    if (chromosome.empty()) return;
+    std::uniform_int_distribution<int> idx_dist(0, static_cast<int>(chromosome.size()) - 1);
+    std::uniform_int_distribution<int> bay_dist(0, static_cast<int>(info_.bayTypes.size()) - 1);
+    chromosome[idx_dist(rng_)] = info_.bayTypes[bay_dist(rng_)].id;
 }
 
 const BayType* GeneticAlgorithm::getBayTypeById(int type_id) const {
@@ -1446,56 +1799,18 @@ const BayType* GeneticAlgorithm::getBayTypeById(int type_id) const {
     return nullptr;
 }
 
-// ---> THIS WAS THE MISSING FUNCTION THAT BROKE THE COMPILER! <---
 double GeneticAlgorithm::randomAngleDegrees() {
     std::uniform_real_distribution<double> angle_dist(0.0, 360.0);
     return angle_dist(rng_);
 }
 
 bool GeneticAlgorithm::isBetterSolution(const Solution& lhs, const Solution& rhs) const {
-    constexpr double kScoreEps = 1e-9;
-    if (lhs.score + kScoreEps < rhs.score) return true;
-    if (rhs.score + kScoreEps < lhs.score) return false;
-    
-    // Tie breaker 1: More bays is better
-    if (lhs.bays.size() != rhs.bays.size()) {
-        return lhs.bays.size() > rhs.bays.size();
-    }
-    
-    // Tie breaker 2: Smaller overall footprint is better (packs tighter)
-    return solutionFootprintArea(lhs) < solutionFootprintArea(rhs);
-}
-
-double GeneticAlgorithm::solutionFootprintArea(const Solution& solution) const {
-    if (solution.bays.empty()) return 0.0;
-
-    double min_x = std::numeric_limits<double>::max();
-    double max_x = -std::numeric_limits<double>::max();
-    double min_y = std::numeric_limits<double>::max();
-    double max_y = -std::numeric_limits<double>::max();
-
-    for (const auto& bay : solution.bays) {
-        OBB solid = CollisionChecker::createSolidOBB(bay, &info_);
-        for (const auto& corner : solid.corners) {
-            min_x = std::min(min_x, corner.x);
-            max_x = std::max(max_x, corner.x);
-            min_y = std::min(min_y, corner.y);
-            max_y = std::max(max_y, corner.y);
-        }
-    }
-
-    return (max_x - min_x) * (max_y - min_y);
-}
-
-GeneticAlgorithm::GAParams GeneticAlgorithm::params() const {
-    return {};
+    return lhs.training_score < rhs.training_score;
 }
 
 double GeneticAlgorithm::defaultCellSize() const {
     double cell_size = 1.0;
-    for (const auto& bay_type : info_.bayTypes) {
-        cell_size = std::max(cell_size, std::max(bay_type.width, bay_type.depth));
-    }
+    for (const auto& bay_type : info_.bayTypes) cell_size = std::max(cell_size, std::max(bay_type.width, bay_type.depth));
     return cell_size;
 }
 
@@ -1512,15 +1827,6 @@ class GeneticAlgorithm : public Algorithm {
 public:
     using Chromosome = std::vector<int>;
 
-    GeneticAlgorithm(const StaticState& info, uint64_t seed);
-
-    void run(std::atomic<bool>& stop_flag) override;
-
-    Chromosome crossoverOX1(const Chromosome& p1, const Chromosome& p2);
-    void mutateSwap(Chromosome& chromosome);
-    void mutateScramble(Chromosome& chromosome);
-
-protected:
     struct GAParams {
         int population_size = 24;
         int elite_count = 4;
@@ -1530,17 +1836,33 @@ protected:
         double swap_rate_max = 0.55;
         double scramble_rate_base = 0.10;
         double scramble_rate_max = 0.35;
+        double replace_rate_base = 0.15; 
+        double replace_rate_max = 0.40;
     };
 
-    // Passed stop_flag so it can exit mid-decode if time is up!
+    GeneticAlgorithm(const StaticState& info, uint64_t seed);
+    void setParams(const GAParams& p) { hp_ = p; }
+
+    void run(std::atomic<bool>& stop_flag) override;
+
+    Chromosome crossoverTwoPoint(const Chromosome& p1, const Chromosome& p2);
+    void mutateSwap(Chromosome& chromosome);
+    void mutateScramble(Chromosome& chromosome);
+    void mutateReplace(Chromosome& chromosome); 
+
+protected:
+    GAParams hp_; 
+    GAParams params() const { return hp_; }
+
     virtual Solution decodeChromosome(const Chromosome& chromosome, std::atomic<bool>& stop_flag) = 0;
 
     Chromosome randomChromosome();
+    Chromosome generateHeuristicChromosome(int type);
+    Chromosome generateGreedyChromosome(); // NEW: The ultimate seed!
+
     const BayType* getBayTypeById(int type_id) const;
     double randomAngleDegrees();
     bool isBetterSolution(const Solution& lhs, const Solution& rhs) const;
-    double solutionFootprintArea(const Solution& solution) const;
-    GAParams params() const;
     double defaultCellSize() const;
 };
 
@@ -1549,18 +1871,25 @@ File: backend/src/solvers/greedy.cpp
 ============================================================
 
 #include "greedy.hpp"
-#include "../core/collision.hpp"
 #include <algorithm>
 #include <cmath>
-#include <limits>
+
+namespace {
+void expandBounds(const OBB& obb, double& min_x, double& max_x, double& min_y, double& max_y) {
+    for (int i = 0; i < 4; ++i) {
+        min_x = std::min(min_x, obb.corners[i].x); max_x = std::max(max_x, obb.corners[i].x);
+        min_y = std::min(min_y, obb.corners[i].y); max_y = std::max(max_y, obb.corners[i].y);
+    }
+}
+}
 
 GreedySolver::GreedySolver(const StaticState& info, uint64_t seed)
     : Algorithm(info, seed)
-    , wh_area_(warehouseArea(info.warehousePolygon))
 {
-    // Sort bay type indices by footprint area descending (largest first)
-    for (int i = 0; i < static_cast<int>(info_.bayTypes.size()); ++i)
+    // Sort bay types by Area Descending (Largest first packs the tightest)
+    for (int i = 0; i < static_cast<int>(info_.bayTypes.size()); ++i) {
         sorted_type_ids_.push_back(i);
+    }
     std::sort(sorted_type_ids_.begin(), sorted_type_ids_.end(),
               [&](int a, int b) {
                   const auto& ta = info_.bayTypes[a];
@@ -1568,78 +1897,87 @@ GreedySolver::GreedySolver(const StaticState& info, uint64_t seed)
                   return (ta.width * ta.depth) > (tb.width * tb.depth);
               });
 
-    // Precompute 13 rotation angles: 0, 15, ..., 180 degrees
-    for (int i = 0; i < 13; ++i)
+    // 0, 15, 30, ..., 180 degrees
+    for (int i = 0; i < 13; ++i) {
         rotations_[i] = static_cast<double>(i) * 15.0;
+    }
 }
 
 void GreedySolver::run(std::atomic<bool>& stop_flag) {
-    (void)stop_flag; // single-pass — ignores stop flag
+    (void)stop_flag; // Greedy is single-pass, doesn't need to loop
     fillPass();
-    updateBest(best_);
 }
 
 void GreedySolver::fillPass() {
-    resetLayout(); // clear best_.bays and grid_
-
+    resetLayout(); 
     if (info_.warehousePolygon.empty() || info_.bayTypes.empty()) return;
 
-    // Seed candidate set with warehouse AABB bottom-left corner
-    double min_x = info_.warehousePolygon[0].x;
-    double min_y = info_.warehousePolygon[0].y;
-    for (const auto& p : info_.warehousePolygon) {
-        if (p.x < min_x) min_x = p.x;
-        if (p.y < min_y) min_y = p.y;
-    }
+    // Use the exact same bulletproof anchors as the GA!
+    std::vector<Point2D> anchors = generateSafeAnchors();
+    SpatialGrid decode_grid(largestBayDim(info_));
+    constexpr int kMaxAnchors = 500;
 
-    // Small epsilon to keep trial positions strictly inside the polygon
-    // (boundary points may fail the ray-casting inside-polygon test).
-    constexpr double EPS = 1e-3;
+    // Try to place as many bays as possible
+    bool placed_any_in_pass = true;
+    
+    // We keep looping over all bay types until NO bay can fit anywhere
+    while (placed_any_in_pass) {
+        placed_any_in_pass = false;
 
-    CandidateSet candidates;
-    candidates.insert({min_x + EPS, min_y + EPS});
+        // Sort anchors Bottom-Left first
+        std::sort(anchors.begin(), anchors.end(),[](const Point2D& lhs, const Point2D& rhs) {
+            auto quantize =[](double v) { return static_cast<long long>(std::round(v * 100.0)); };
+            long long q_ly = quantize(lhs.y);
+            long long q_ry = quantize(rhs.y);
+            if (q_ly != q_ry) return q_ly < q_ry;
+            return quantize(lhs.x) < quantize(rhs.x);
+        });
 
-    // Also seed with obstacle corners (potential tight-packing spots)
-    for (const auto& obs : info_.obstacles) {
-        candidates.insert({obs.x + EPS,             obs.y + EPS});
-        candidates.insert({obs.x + obs.width + EPS, obs.y + EPS});
-        candidates.insert({obs.x + EPS,             obs.y + obs.depth + EPS});
-        candidates.insert({obs.x + obs.width + EPS, obs.y + obs.depth + EPS});
-    }
-
-    std::array<double, 13> rots = rotations_;
-
-    while (!candidates.empty()) {
-        // Pop the bottom-left candidate (smallest y, then smallest x)
-        Point2D pos = *candidates.begin();
-        candidates.erase(candidates.begin());
-
-        bool placed = false;
         for (int type_idx : sorted_type_ids_) {
-            if (placed) break;
             const BayType& bt = info_.bayTypes[type_idx];
+            bool bay_placed = false;
+            Bay best_candidate{bt.id, 0.0, 0.0, 0.0};
 
-            // Shuffle rotations per position for inter-thread diversity
-            std::shuffle(rots.begin(), rots.end(), rng_);
-
-            for (double rot : rots) {
-                Bay candidate{bt.id, pos.x, pos.y, rot};
-                if (tryPlace(candidate)) {
-                    // Add the new bay's solid corners as future candidates
-                    OBB solid = CollisionChecker::createSolidOBB(candidate, &info_);
-                    for (int i = 0; i < 4; ++i)
-                        candidates.insert(solid.corners[i]);
-                    placed = true;
-                    break;
+            for (const auto& anchor : anchors) {
+                // Standard orthogonal angles are fastest for greedy packing
+                for (double angle : {0.0, 90.0, 180.0, 270.0}) {
+                    Bay candidate{bt.id, anchor.x, anchor.y, angle};
+                    if (CollisionChecker::isValidPlacement(candidate, best_.bays, &info_, &decode_grid)) {
+                        best_candidate = candidate;
+                        bay_placed = true;
+                        break;
+                    }
                 }
+                if (bay_placed) break; // Found the bottom-left-most spot!
+            }
+
+            if (bay_placed) {
+                // Add to layout
+                best_.bays.push_back(best_candidate);
+                OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
+                decode_grid.insertBay(static_cast<int>(best_.bays.size() - 1), solid);
+
+                // Generate new tight-packing anchors
+                OBB gap = CollisionChecker::createGapOBB(best_candidate, &info_);
+                double min_x = solid.corners[0].x, max_x = min_x;
+                double min_y = solid.corners[0].y, max_y = min_y;
+                expandBounds(gap, min_x, max_x, min_y, max_y);
+                expandBounds(solid, min_x, max_x, min_y, max_y);
+
+                anchors.push_back({max_x, min_y});
+                anchors.push_back({min_x, max_y});
+                if (anchors.size() > static_cast<size_t>(kMaxAnchors)) anchors.resize(kMaxAnchors);
+
+                placed_any_in_pass = true;
+                break; // Restart the while loop to place the next largest bay possible
             }
         }
     }
 
-    best_.score      = computeScore(best_.bays, info_, wh_area_);
+    calculateMetrics(best_);
     best_.producedBy = name();
+    updateBest(best_);
 }
-
 
 ============================================================
 File: backend/src/solvers/greedy.hpp
@@ -1647,48 +1985,24 @@ File: backend/src/solvers/greedy.hpp
 
 #pragma once
 #include "algorithm.hpp"
-#include "../core/score.hpp"
 #include <array>
-#include <set>
+#include <vector>
 
-/**
- * @brief Constructive BLF (Bottom-Left Fill) greedy solver.
- *
- * Maintains a sorted candidate set of insertion points derived from
- * previously placed bay corners. At each point, tries every bay type
- * (largest first) across 13 rotation angles (0-180 degrees, step 15).
- *
- * fillPass() is public so SimulatedAnnealing can call it directly as
- * a warm-start without going through run().
- */
 class GreedySolver : public Algorithm {
 public:
     GreedySolver(const StaticState& info, uint64_t seed);
 
     void        run(std::atomic<bool>& stop_flag) override;
     std::string name() const override { return "greedy"; }
+    bool        isAnytime() const override { return false; } // Greedy runs once and finishes
 
-    /**
-     * @brief Run one BLF fill pass into best_.bays.
-     * Resets the layout first (best_.bays cleared, grid cleared).
-     * Computes and stores best_.score after placement.
-     */
     void fillPass();
 
 private:
-    double           wh_area_;
-    std::vector<int> sorted_type_ids_; ///< indices into info_.bayTypes, desc by area
-    std::array<double, 13> rotations_; ///< 0, 15, 30, ..., 180 degrees
-
-    struct PointCmp {
-        bool operator()(const Point2D& a, const Point2D& b) const {
-            if (a.y != b.y) return a.y < b.y;
-            return a.x < b.x;
-        }
-    };
-    using CandidateSet = std::set<Point2D, PointCmp>;
+    std::vector<int> sorted_type_ids_; 
+    static constexpr size_t NUM_ROTATIONS = 13;
+    std::array<double, NUM_ROTATIONS> rotations_; 
 };
-
 
 ============================================================
 File: backend/src/solvers/jostle_algorithm.cpp
@@ -1698,6 +2012,7 @@ File: backend/src/solvers/jostle_algorithm.cpp
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <thread>
 
 JostleAlgorithm::JostleAlgorithm(const StaticState& info, uint64_t seed, int maxIterations)
     : Algorithm(info, seed), maxIterations_(maxIterations) {
@@ -1710,11 +2025,8 @@ std::string JostleAlgorithm::name() const {
 bool JostleAlgorithm::isValidState(const std::vector<Bay>& state) {
     std::vector<Bay> placed;
     placed.reserve(state.size());
-
     for (const Bay& bay : state) {
-        if (!CollisionChecker::isValidPlacement(bay, placed, &info_, nullptr)) {
-            return false;
-        }
+        if (!CollisionChecker::isValidPlacement(bay, placed, &info_, nullptr)) return false;
         placed.push_back(bay);
     }
     return true;
@@ -1722,43 +2034,32 @@ bool JostleAlgorithm::isValidState(const std::vector<Bay>& state) {
 
 bool JostleAlgorithm::isBayValidInState(const std::vector<Bay>& state, int bayIndex) {
     if (bayIndex < 0 || bayIndex >= (int)state.size()) return false;
-    
-    thread_local std::vector<Bay> others;
-    others.clear();
+    const Bay& candidate = state[bayIndex];
+    std::vector<Bay> others;
     others.reserve(state.size());
     for (int i = 0; i < (int)state.size(); ++i) {
-        if (i != bayIndex) {
-            others.push_back(state[i]);
-        }
+        if (i != bayIndex) others.push_back(state[i]);
     }
-
-    return CollisionChecker::isValidPlacement(state[bayIndex], others, &info_, nullptr);
+    return CollisionChecker::isValidPlacement(candidate, others, &info_, nullptr);
 }
 
 void JostleAlgorithm::greedyPlacement(std::vector<Bay>& state) {
     if (info_.bayTypes.empty() || info_.warehousePolygon.empty()) return;
-
     double minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
     for(auto p : info_.warehousePolygon) {
         minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
         minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
     }
-    if (minX >= maxX || minY >= maxY) return;
-
     std::vector<BayType> sortedTypes = info_.bayTypes;
+    // Sort by "Efficiency": Area per Price. We want the most area for the least money.
     std::sort(sortedTypes.begin(), sortedTypes.end(), [](const BayType& a, const BayType& b){
-        return (a.width * a.depth * a.nLoads) > (b.width * b.depth * b.nLoads);
+        return (a.width * a.depth / a.price) > (b.width * b.depth / b.price);
     });
-
-    double stepX = (maxX - minX) / 100.0;
-    double stepY = (maxY - minY) / 100.0;
-    if (stepX <= 0.1) stepX = 1.0;
-    if (stepY <= 0.1) stepY = 1.0;
-
-    for (double y = minY; y <= maxY; y += stepY) {
-        for (double x = minX; x <= maxX; x += stepX) {
+    
+    // Fine-grained grid search for the seed
+    for (double y = minY; y <= maxY; y += 100.0) {
+        for (double x = minX; x <= maxX; x += 100.0) {
             for (const auto& bt : sortedTypes) {
-                // Initial greedy still uses orthogonal for speed and better coverage
                 for (double rot : {0.0, 90.0, 180.0, 270.0}) {
                     Bay b = {bt.id, x, y, rot};
                     if (CollisionChecker::isValidPlacement(b, state, &info_, nullptr)) {
@@ -1774,8 +2075,7 @@ void JostleAlgorithm::greedyPlacement(std::vector<Bay>& state) {
 
 bool JostleAlgorithm::translateBay(std::vector<Bay>& state, int bayIndex, double deltaX, double deltaY) {
     double oldX = state[bayIndex].x, oldY = state[bayIndex].y;
-    state[bayIndex].x += deltaX;
-    state[bayIndex].y += deltaY;
+    state[bayIndex].x += deltaX; state[bayIndex].y += deltaY;
     if (isBayValidInState(state, bayIndex)) return true;
     state[bayIndex].x = oldX; state[bayIndex].y = oldY;
     return false;
@@ -1785,7 +2085,6 @@ bool JostleAlgorithm::rotateBay(std::vector<Bay>& state, int bayIndex, double de
     double oldRot = state[bayIndex].rotation;
     state[bayIndex].rotation = std::fmod(oldRot + deltaAngle, 360.0);
     if (state[bayIndex].rotation < 0) state[bayIndex].rotation += 360.0;
-
     if (isBayValidInState(state, bayIndex)) return true;
     state[bayIndex].rotation = oldRot;
     return false;
@@ -1809,39 +2108,30 @@ bool JostleAlgorithm::changeBayType(std::vector<Bay>& state, int bayIndex, int n
 
 bool JostleAlgorithm::addRandomBay(std::vector<Bay>& state) {
     if (info_.bayTypes.empty() || info_.warehousePolygon.empty()) return false;
-    
     double minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
     for(auto p : info_.warehousePolygon) {
         minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
         minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
     }
-    if (minX >= maxX) return false;
-
     std::uniform_int_distribution<int> type_dist(0, (int)info_.bayTypes.size() - 1);
     std::uniform_real_distribution<double> x_dist(minX, maxX);
     std::uniform_real_distribution<double> y_dist(minY, maxY);
-    std::uniform_real_distribution<double> rot_dist(0.0, 360.0); // Arbitrary rotation
+    std::uniform_real_distribution<double> rot_dist(0.0, 360.0);
     std::uniform_real_distribution<double> prob(0.0, 1.0);
 
-    for (int attempt = 0; attempt < 30; ++attempt) {
+    for (int attempt = 0; attempt < 50; ++attempt) {
         double rx, ry;
-        if (!state.empty() && prob(rng_) < 0.80) {
-            std::uniform_int_distribution<int> bay_dist(0, (int)state.size() - 1);
-            int ref = bay_dist(rng_);
-            double offset_range = largestBayDim(info_) * 1.5; 
-            std::uniform_real_distribution<double> offset(-offset_range, offset_range);
-            rx = state[ref].x + offset(rng_);
-            ry = state[ref].y + offset(rng_);
+        if (!state.empty() && prob(rng_) < 0.90) {
+            int ref = std::uniform_int_distribution<int>(0, state.size() - 1)(rng_);
+            double range = 1500.0;
+            std::uniform_real_distribution<double> offset(-range, range);
+            rx = state[ref].x + offset(rng_); ry = state[ref].y + offset(rng_);
         } else {
-            rx = x_dist(rng_);
-            ry = y_dist(rng_);
+            rx = x_dist(rng_); ry = y_dist(rng_);
         }
-
         Bay newBay = {info_.bayTypes[type_dist(rng_)].id, rx, ry, rot_dist(rng_)};
-        
         if (CollisionChecker::isValidPlacement(newBay, state, &info_, nullptr)) {
-            state.push_back(newBay);
-            return true;
+            state.push_back(newBay); return true;
         }
     }
     return false;
@@ -1858,86 +2148,73 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
     std::vector<Bay> current_state;
     greedyPlacement(current_state);
     
-    double current_score = calculateScore(current_state);
-    
-    bool is_minimization = true; 
-    
+    double current_score = evaluateTraining(current_state);
     if (!current_state.empty()) {
         Solution seed;
         seed.bays = current_state;
-        seed.score = current_score;
-        updateBest(seed);
+        calculateMetrics(seed);
+        updateBest(std::move(seed));
     }
 
-    std::uniform_real_distribution<double> move_dist(-20.0, 20.0); 
-    std::uniform_real_distribution<double> rot_delta_dist(-15.0, 15.0); // Small jiggles
+    std::uniform_real_distribution<double> move_dist(-50.0, 50.0); 
+    std::uniform_real_distribution<double> rot_delta_dist(-15.0, 15.0); 
     std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
     
-    std::discrete_distribution<int> op_dist({50, 5, 20, 15, 5, 5}); 
+    // Aggressively prioritize Adding (weight 80) to fill the warehouse
+    std::discrete_distribution<int> op_dist({80, 1, 10, 5, 2, 2}); 
 
     int iterations = 0;
-    double temp = 1000.0;
-    const double cooling = 0.9999;
+    double temp = 1.0; 
+    const double cooling = 0.999995;
 
-    while (!stop_flag && (maxIterations_ <= 0 || iterations < maxIterations_)) {
+    while (!stop_flag) {
+        if (maxIterations_ > 0 && iterations >= maxIterations_) break;
+        
         int op = op_dist(rng_);
         bool success = false;
-        
         int mod_idx1 = -1, mod_idx2 = -1;
         Bay backup_bay1, backup_bay2;
         bool added = false, removed = false;
 
         if (op == 0) {
-            success = addRandomBay(current_state);
-            if (success) added = true;
-        } else if (op == 1) {
-            if (!current_state.empty()) {
-                std::uniform_int_distribution<int> dist(0, (int)current_state.size() - 1);
-                mod_idx1 = dist(rng_);
-                backup_bay1 = current_state[mod_idx1];
-                current_state.erase(current_state.begin() + mod_idx1);
-                removed = true;
-                success = true;
-            }
-        } else if (!current_state.empty()) {
-            std::uniform_int_distribution<int> bay_dist(0, (int)current_state.size() - 1);
-            mod_idx1 = bay_dist(rng_);
+            if (addRandomBay(current_state)) { success = true; added = true; }
+        } else if (op == 1 && current_state.size() > 5) { // Protect small layouts from reduction
+            mod_idx1 = std::uniform_int_distribution<int>(0, current_state.size() - 1)(rng_);
             backup_bay1 = current_state[mod_idx1];
-            
-            if (op == 2) {
-                success = translateBay(current_state, mod_idx1, move_dist(rng_), move_dist(rng_));
-            } else if (op == 3) {
-                success = rotateBay(current_state, mod_idx1, rot_delta_dist(rng_));
-            } else if (op == 4) {
+            current_state.erase(current_state.begin() + mod_idx1);
+            removed = true; success = true;
+        } else if (!current_state.empty()) {
+            mod_idx1 = std::uniform_int_distribution<int>(0, current_state.size() - 1)(rng_);
+            backup_bay1 = current_state[mod_idx1];
+            if (op == 2) success = translateBay(current_state, mod_idx1, move_dist(rng_), move_dist(rng_));
+            else if (op == 3) success = rotateBay(current_state, mod_idx1, rot_delta_dist(rng_));
+            else if (op == 4) {
                 mod_idx2 = (mod_idx1 + 1) % (int)current_state.size();
                 backup_bay2 = current_state[mod_idx2];
                 success = swapBays(current_state, mod_idx1, mod_idx2);
             } else if (op == 5) {
-                std::uniform_int_distribution<int> type_dist(0, (int)info_.bayTypes.size() - 1);
-                success = changeBayType(current_state, mod_idx1, info_.bayTypes[type_dist(rng_)].id);
+                int tid = info_.bayTypes[std::uniform_int_distribution<int>(0, info_.bayTypes.size()-1)(rng_)].id;
+                success = changeBayType(current_state, mod_idx1, tid);
             }
         }
 
         if (success) {
-            double next_score = calculateScore(current_state);
-            double delta;
-            if (is_minimization) {
-                delta = next_score - current_score;
-            } else {
-                delta = current_score - next_score;
-            }
+            double next_score = evaluateTraining(current_state);
+            double delta = next_score - current_score;
             
             if (delta <= 0 || (temp > 1e-9 && prob_dist(rng_) < std::exp(-delta / temp))) {
                 current_score = next_score;
                 if (delta <= 0) {
-                    updateBest({current_state, current_score, name(), 0.0});
+                    Solution sol;
+                    sol.bays = current_state;
+                    calculateMetrics(sol);
+                    updateBest(std::move(sol));
                 }
             } else {
-                if (added) {
-                    current_state.pop_back();
-                } else if (removed) {
-                    current_state.insert(current_state.begin() + mod_idx1, backup_bay1);
-                } else {
+                // Revert
+                if (added) current_state.pop_back();
+                else if (removed) current_state.insert(current_state.begin() + mod_idx1, backup_bay1);
+                else {
                     current_state[mod_idx1] = backup_bay1;
                     if (mod_idx2 != -1) current_state[mod_idx2] = backup_bay2;
                 }
@@ -1945,8 +2222,9 @@ void JostleAlgorithm::run(std::atomic<bool>& stop_flag) {
         }
 
         temp *= cooling;
-        if (temp < 0.1) temp = 1000.0;
+        if (temp < 0.1) temp = 1.0; 
         iterations++;
+        if (iterations % 500 == 0) std::this_thread::yield();
     }
 }
 
@@ -1983,6 +2261,328 @@ private:
     int maxIterations_;
 };
 
+
+============================================================
+File: backend/src/solvers/sa.cpp
+============================================================
+
+#include "sa.hpp"
+#include "../core/collision.hpp"
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include "../core/score.hpp"
+#include <limits>
+
+// ── Constructor ───────────────────────────────────────────────────────────────
+
+SimulatedAnnealing::SimulatedAnnealing(const StaticState& info, uint64_t seed)
+    : Algorithm(info, seed)
+    , wh_area_(warehouseArea(info.warehousePolygon))
+    , sum_ratio_(0.0)
+    , sum_area_(0.0)
+    , current_grid_(largestBayDim(info))
+{}
+
+// ── run() ─────────────────────────────────────────────────────────────────────
+
+void SimulatedAnnealing::run(std::atomic<bool>& stop_flag) {
+    // Phase 1: greedy warm start
+    GreedySolver greedy(info_, rng_());
+    greedy.fillPass();
+    initFromBays(greedy.best().bays);
+
+    // Commit greedy result as the first known best
+    updateBest(greedy.best());
+
+    if (current_bays_.empty()) return;
+
+    // Phase 2: SA
+    double T = calibrateT0();
+    constexpr double ALPHA = 0.9995;
+
+    std::uniform_int_distribution<int> move_dist(0, 1);
+
+    while (!stop_flag) {
+        bool accepted = (move_dist(rng_) == 0)
+                        ? moveRelocate(T)
+                        : moveReplaceType(T);
+
+        if (accepted) {
+            Solution currentSol;
+            currentSol.bays   = current_bays_;
+            calculateMetrics(currentSol);
+            updateBest(currentSol);
+        }
+
+        T *= ALPHA;
+    }
+}
+
+// ── State management ────────────────────────────────────────────────────────
+
+void SimulatedAnnealing::initFromBays(const std::vector<Bay>& bays) {
+    current_bays_ = bays;
+    current_grid_.clearAll();
+    for (int i = 0; i < static_cast<int>(current_bays_.size()); ++i)
+        current_grid_.insertBay(i, CollisionChecker::createSolidOBB(current_bays_[i], &info_));
+
+    sum_ratio_ = 0.0;
+    sum_area_  = 0.0;
+    for (const auto& bay : current_bays_) {
+        sum_ratio_ += bayRatio(bay.typeId);
+        sum_area_  += bayArea(bay.typeId);
+    }
+    rebuildEventPoints();
+}
+
+void SimulatedAnnealing::rebuildEventPoints() {
+    event_points_.clear();
+    for (const auto& bay : current_bays_) {
+        OBB solid = CollisionChecker::createSolidOBB(bay, &info_);
+        for (int i = 0; i < 4; ++i)
+            event_points_.push_back(solid.corners[i]);
+    }
+    if (event_points_.empty() && !info_.warehousePolygon.empty()) {
+        double min_x = info_.warehousePolygon[0].x;
+        double min_y = info_.warehousePolygon[0].y;
+        for (const auto& p : info_.warehousePolygon) {
+            if (p.x < min_x) min_x = p.x;
+            if (p.y < min_y) min_y = p.y;
+        }
+        event_points_.push_back({min_x, min_y});
+    }
+}
+
+Bay SimulatedAnnealing::removeBayAt(int idx) {
+    Bay removed = current_bays_[idx];
+    current_bays_.erase(current_bays_.begin() + idx);
+    current_grid_.clearBays();
+    for (int i = 0; i < static_cast<int>(current_bays_.size()); ++i)
+        current_grid_.insertBay(i, CollisionChecker::createSolidOBB(current_bays_[i], &info_));
+    return removed;
+}
+
+void SimulatedAnnealing::appendBay(const Bay& bay) {
+    current_grid_.insertBay(static_cast<int>(current_bays_.size()),
+                            CollisionChecker::createSolidOBB(bay, &info_));
+    current_bays_.push_back(bay);
+}
+
+// ── Calibration ───────────────────────────────────────────────────────────────
+
+double SimulatedAnnealing::calibrateT0() {
+    if (current_bays_.empty() || info_.bayTypes.size() < 2)
+        return 1.0;
+
+    std::uniform_int_distribution<int> bay_dist(
+        0, static_cast<int>(current_bays_.size()) - 1);
+    std::uniform_int_distribution<int> type_dist(
+        0, static_cast<int>(info_.bayTypes.size()) - 1);
+
+    double sum_delta = 0.0;
+    int    count     = 0;
+    double cur_score = evaluateTraining(current_bays_);
+
+    for (int probe = 0; probe < 200; ++probe) {
+        const Bay& b        = current_bays_[bay_dist(rng_)];
+        int        new_tidx = type_dist(rng_);
+        const BayType& nt   = info_.bayTypes[new_tidx];
+        if (nt.id == b.typeId) continue;
+
+        double new_sum_r = sum_ratio_ - bayRatio(b.typeId) + nt.price / nt.nLoads;
+        double new_sum_a = sum_area_  - bayArea(b.typeId)  + nt.width * nt.depth;
+        if (new_sum_a <= 0.0) continue;
+        double af    = wh_area_ / new_sum_a;
+        double new_s = new_sum_r * af * af;
+        double delta = std::fabs(new_s - cur_score);
+        sum_delta += delta;
+        ++count;
+    }
+
+    if (count == 0 || sum_delta == 0.0) return 1.0;
+    return (sum_delta / count) / std::log(2.0);
+}
+
+// ── Move: Relocate ────────────────────────────────────────────────────────
+
+bool SimulatedAnnealing::moveRelocate(double T) {
+    (void)T; // ΔQ = 0 for same-type relocation → always accept if valid
+    if (current_bays_.empty() || event_points_.empty()) return false;
+
+    std::uniform_int_distribution<int> bay_dist(
+        0, static_cast<int>(current_bays_.size()) - 1);
+    std::uniform_int_distribution<int> ep_dist(
+        0, static_cast<int>(event_points_.size()) - 1);
+
+    int  idx     = bay_dist(rng_);
+    Bay  removed = removeBayAt(idx);
+
+    Point2D new_pos = event_points_[ep_dist(rng_)];
+
+    std::array<double, 13> rots;
+    for (int i = 0; i < 13; ++i) rots[i] = i * 15.0;
+    std::shuffle(rots.begin(), rots.end(), rng_);
+
+    for (double rot : rots) {
+        Bay candidate{removed.typeId, new_pos.x, new_pos.y, rot};
+        if (CollisionChecker::isValidPlacement(
+                candidate, current_bays_, &info_, &current_grid_)) {
+            appendBay(candidate);
+            // sums unchanged (same type)
+            rebuildEventPoints();
+            return true;
+        }
+    }
+
+    // Reject: restore removed bay at end (order doesn't affect correctness)
+    appendBay(removed);
+    return false;
+}
+
+// ── Move: Replace Type ────────────────────────────────────────────────────────
+
+bool SimulatedAnnealing::moveReplaceType(double T) {
+    if (current_bays_.empty() || info_.bayTypes.size() < 2) return false;
+
+    std::uniform_int_distribution<int> bay_dist(
+        0, static_cast<int>(current_bays_.size()) - 1);
+    std::uniform_int_distribution<int> type_dist(
+        0, static_cast<int>(info_.bayTypes.size()) - 1);
+    std::uniform_real_distribution<double> unif(0.0, 1.0);
+
+    int idx            = bay_dist(rng_);
+    const Bay& current = current_bays_[idx];
+    double old_ratio   = bayRatio(current.typeId);
+    double old_area    = bayArea(current.typeId);
+
+    // Pick a different bay type
+    int new_tidx;
+    do { new_tidx = type_dist(rng_); }
+    while (info_.bayTypes[new_tidx].id == current.typeId);
+
+    const BayType& nt = info_.bayTypes[new_tidx];
+    double new_ratio  = nt.price / nt.nLoads;
+    double new_area   = nt.width * nt.depth;
+
+    // Early Metropolis check (skip expensive SAT if thermodynamically rejected)
+    double new_sum_r  = sum_ratio_ - old_ratio + new_ratio;
+    double new_sum_a  = sum_area_  - old_area  + new_area;
+    double af         = (new_sum_a > 0.0) ? wh_area_ / new_sum_a : 0.0;
+    double new_score  = new_sum_r * af * af;
+    double delta      = new_score - evaluateTraining(current_bays_);
+
+    if (delta >= 0.0) {
+        if (T <= 0.0 || unif(rng_) >= std::exp(-delta / T))
+            return false; // rejected before attempting placement
+    }
+
+    // Attempt placement: remove current bay, try new type at same position
+    Bay removed = removeBayAt(idx);
+
+    std::array<double, 13> rots;
+    for (int i = 0; i < 13; ++i) rots[i] = i * 15.0;
+    std::shuffle(rots.begin(), rots.end(), rng_);
+
+    for (double rot : rots) {
+        Bay candidate{nt.id, removed.x, removed.y, rot};
+        if (CollisionChecker::isValidPlacement(
+                candidate, current_bays_, &info_, &current_grid_)) {
+            appendBay(candidate);
+            sum_ratio_ = new_sum_r;
+            sum_area_  = new_sum_a;
+            rebuildEventPoints();
+            return true;
+        }
+    }
+
+    // Reject: restore original bay
+    appendBay(removed);
+    return false;
+}
+
+// ── Incremental helpers ────────────────────────────────────────────────────────
+
+double SimulatedAnnealing::bayRatio(int typeId) const {
+    for (const auto& bt : info_.bayTypes)
+        if (bt.id == typeId) return bt.price / bt.nLoads;
+    return 0.0;
+}
+
+double SimulatedAnnealing::bayArea(int typeId) const {
+    for (const auto& bt : info_.bayTypes)
+        if (bt.id == typeId) return bt.width * bt.depth;
+    return 0.0;
+}
+
+double SimulatedAnnealing::largestBayDim(const StaticState& info) {
+    double d = 1.0;
+    for (const auto& bt : info.bayTypes)
+        d = std::max(d, std::max(bt.width, bt.depth));
+    return d;
+}
+
+============================================================
+File: backend/src/solvers/sa.hpp
+============================================================
+
+#pragma once
+#include "algorithm.hpp"
+#include "../core/score.hpp"
+#include "greedy.hpp"
+#include <array>
+#include <vector>
+
+/**
+ * @brief Simulated Annealing solver.
+ *
+ * Phase 1: runs GreedySolver::fillPass() as a warm start.
+ * Phase 2: iterates Metropolis moves (relocate / replace-type 50/50)
+ *          with exponential cooling T *= 0.9995 until stop_flag fires.
+ *
+ * best_ (Algorithm base member) is updated every time an accepted move
+ * improves the score, so it is always safe to read after the thread joins.
+ *
+ * Incremental sums (sum_ratio_, sum_area_) let each move recompute Q in O(1).
+ */
+class SimulatedAnnealing : public Algorithm {
+public:
+    SimulatedAnnealing(const StaticState& info, uint64_t seed);
+
+    void        run(std::atomic<bool>& stop_flag) override;
+    std::string name() const override { return "sa"; }
+
+private:
+    // ── Working-layout state (separate from best_) ───────────────────────
+    double              wh_area_;
+    double              sum_ratio_;      ///< Σ price/nLoads for current layout
+    double              sum_area_;       ///< Σ width*depth  for current layout
+    std::vector<Bay>    current_bays_;
+    SpatialGrid         current_grid_;   ///< broad-phase grid for current_bays_
+    std::vector<Point2D> event_points_;  ///< solid OBB corners of current bays
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+    void   initFromBays(const std::vector<Bay>& bays);
+    void   rebuildEventPoints();
+    double calibrateT0();
+
+    // Move primitives — return true if move was accepted
+    bool moveRelocate(double T);
+    bool moveReplaceType(double T);
+
+    // Incremental helpers
+    double bayRatio(int typeId) const;
+    double bayArea (int typeId) const;
+
+    // Removes current_bays_[idx] and rebuilds current_grid_ to match.
+    // The bay is returned; current_bays_ has N-1 elements afterwards.
+    Bay removeBayAt(int idx);
+
+    // Appends a bay to current_bays_ and inserts it into current_grid_.
+    void appendBay(const Bay& bay);
+
+    static double largestBayDim(const StaticState& info);
+};
 
 ============================================================
 File: backend/tests/test_algorithm.cpp
@@ -2739,6 +3339,93 @@ int main() {
 
 
 ============================================================
+File: backend/tests/test_sa.cpp
+============================================================
+
+#include "../src/solvers/sa.hpp"
+#include "../src/core/collision.hpp"
+#include "../src/core/score.hpp"
+#include "../src/solvers/greedy.hpp"
+#include <atomic>
+#include <cassert>
+#include <chrono>
+#include <iostream>
+#include <limits>
+#include <thread>
+
+static int passed = 0, failed = 0;
+
+#define TEST(name, expr) \
+    do { if (expr) { std::cout << "  [PASS] " << name << "\n"; ++passed; } \
+         else      { std::cout << "  [FAIL] " << name << "\n"; ++failed; } } while(0)
+
+static StaticState makeState() {
+    StaticState s;
+    s.warehousePolygon = {{0,0},{10000,0},{10000,10000},{0,10000}};
+    s.ceilingRegions   = {{0, 5000.0}};
+    s.bayTypes.push_back({0, 800.0, 1200.0, 2800.0, 200.0, 4.0, 2000.0});
+    s.bayTypes.push_back({1, 400.0,  600.0, 2800.0, 100.0, 2.0,  800.0});
+    return s;
+}
+
+// Runs SA for 'seconds' seconds, returns the best solution.
+static Solution runSA(const StaticState& s, double seconds, uint64_t seed = 42) {
+    std::atomic<bool> stop{false};
+    SimulatedAnnealing sa(s, seed);
+
+    std::thread timer([&stop, seconds]() {
+        std::this_thread::sleep_for(
+            std::chrono::duration<double>(seconds));
+        stop = true;
+    });
+    sa.run(stop);
+    timer.join();
+    return sa.best();
+}
+
+void testSAProducesValidSolution() {
+    std::cout << "\nSA produces valid solution\n";
+    StaticState s = makeState();
+    Solution sol = runSA(s, 2.0);
+
+    TEST("SA places at least 1 bay",   sol.bays.size() >= 1);
+    TEST("SA score is not max_double",  sol.score < std::numeric_limits<double>::max());
+    TEST("SA producedBy is 'sa'",       sol.producedBy == "sa");
+}
+
+void testSABaysAreValid() {
+    std::cout << "\nSA bays pass collision checks\n";
+    StaticState s = makeState();
+    Solution sol = runSA(s, 2.0);
+
+    for (int i = 0; i < (int)sol.bays.size(); ++i) {
+        std::vector<Bay> placed(sol.bays.begin(), sol.bays.begin() + i);
+        bool valid = CollisionChecker::isValidPlacement(sol.bays[i], placed, &s);
+        TEST("SA bay " + std::to_string(i) + " is valid", valid);
+    }
+}
+
+void testSAScoreConsistentWithBays() {
+    std::cout << "\nSA best_.score matches computeScore of its own bays\n";
+    StaticState s = makeState();
+    Solution sol = runSA(s, 2.0);
+
+    double wh       = warehouseArea(s.warehousePolygon);
+    double expected = computeScore(sol.bays, s, wh);
+    TEST("SA score matches computeScore", std::fabs(sol.score - expected) < 1e-6);
+}
+
+int main() {
+    std::cout << "=== SA Solver Tests ===\n";
+    testSAProducesValidSolution();
+    testSABaysAreValid();
+    testSAScoreConsistentWithBays();
+    std::cout << "\n=== Results: " << passed << " passed, "
+              << failed << " failed ===\n";
+    return failed > 0 ? 1 : 0;
+}
+
+============================================================
 File: backend/tests/test_score.cpp
 ============================================================
 
@@ -2779,15 +3466,15 @@ void testComputeScore() {
     TEST("empty layout score = 0", near(computeScore({}, s, wh), 0.0));
 
     // One bay: ratio = 2000/4 = 500, area = 800*1200 = 960000
-    // Q = 500^2 - 960000/1e8 = 250000 - 0.0096
+    // Q = pow(500, 2 - 960000/1e8)
     Bay b{0, 0.0, 0.0, 0.0};
-    double expected = 500.0 * 500.0 - 960000.0 / 1e8;
+    double expected = std::pow(500.0, 2.0 - 960000.0 / wh);
     TEST("one bay score", near(computeScore({b}, s, wh), expected, 1e-4));
 
     // Two identical bays: ratio_sum=1000, area_sum=1920000
-    // Q = 1000^2 - 1920000/1e8
+    // Q = pow(1000, 2 - 1920000/1e8)
     Bay b2{0, 2000.0, 0.0, 0.0};
-    double expected2 = 1000.0 * 1000.0 - 1920000.0 / 1e8;
+    double expected2 = std::pow(1000.0, 2.0 - 1920000.0 / wh);
     TEST("two bay score", near(computeScore({b, b2}, s, wh), expected2, 1e-4));
 }
 
@@ -2800,4 +3487,92 @@ int main() {
     return failed > 0 ? 1 : 0;
 }
 
+
+============================================================
+File: combine_code.py
+============================================================
+
+#!/usr/bin/env python3
+
+import sys
+from pathlib import Path
+
+
+EXCLUDED_DIR_NAMES = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".cache",
+    "node_modules",
+    "build",
+    "dist",
+    "out",
+    "bin",
+}
+
+EXCLUDED_DIR_PREFIXES = {
+    "cmake-build-",
+}
+
+
+def is_excluded_path(path: Path, root: Path) -> bool:
+    rel_parts = path.relative_to(root).parts
+    return any(
+        part in EXCLUDED_DIR_NAMES or any(part.startswith(prefix) for prefix in EXCLUDED_DIR_PREFIXES)
+        for part in rel_parts
+    )
+
+
+def concatenate_code(directory, output_file="combined_code.txt"):
+    directory = Path(directory)
+    
+    if not directory.exists():
+        print(f"Error: Directory '{directory}' does not exist")
+        sys.exit(1)
+    
+    # Find all .cpp and .hpp files
+    extensions = ["*.cpp", "*.hpp", "*.py", "Makefile"]
+    
+    files = []
+    for ext in extensions:
+        files.extend(
+            file_path
+            for file_path in directory.rglob(ext)
+            if not is_excluded_path(file_path, directory)
+        )
+    
+    # Sort files for consistent output
+    files.sort()
+    
+    with open(output_file, 'w') as outfile:
+        for file_path in files:
+            # Get relative path
+            rel_path = file_path.relative_to(directory)
+            
+            # Write header
+            outfile.write("=" * 60 + "\n")
+            outfile.write(f"File: {rel_path}\n")
+            outfile.write("=" * 60 + "\n\n")
+            
+            # Write file content
+            try:
+                with open(file_path, 'r') as infile:
+                    outfile.write(infile.read())
+                outfile.write("\n\n")
+            except Exception as e:
+                outfile.write(f"Error reading file: {e}\n\n")
+    
+    print(f"✅ Combined {len(files)} files into '{output_file}'")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python3 combine_code.py <directory> [output_file]")
+        print("Example: python3 combine_code.py ./src output.txt")
+        sys.exit(1)
+    
+    output = sys.argv[2] if len(sys.argv) > 2 else "combined_code.txt"
+    concatenate_code(sys.argv[1], output)
 

@@ -4,84 +4,102 @@
 #include <cmath>
 #include <limits>
 
+namespace {
+void expandBounds(const OBB& obb, double& min_x, double& max_x, double& min_y, double& max_y) {
+    for (int i = 0; i < 4; ++i) {
+        min_x = std::min(min_x, obb.corners[i].x); max_x = std::max(max_x, obb.corners[i].x);
+        min_y = std::min(min_y, obb.corners[i].y); max_y = std::max(max_y, obb.corners[i].y);
+    }
+}
+}
+
 GreedySolver::GreedySolver(const StaticState& info, uint64_t seed)
     : Algorithm(info, seed)
-    , wh_area_(warehouseArea(info.warehousePolygon))
 {
-    // Sort bay type indices by footprint area descending (largest first)
     for (int i = 0; i < static_cast<int>(info_.bayTypes.size()); ++i)
         sorted_type_ids_.push_back(i);
+        
     std::sort(sorted_type_ids_.begin(), sorted_type_ids_.end(),
               [&](int a, int b) {
                   const auto& ta = info_.bayTypes[a];
                   const auto& tb = info_.bayTypes[b];
-                  return (ta.width * ta.depth) > (tb.width * tb.depth);
+                  
+                  // CRITICAL FIX: Sort by Efficiency (Area / (Price / Loads))
+                  // This forces Greedy to pack highly profitable bays first!
+                  double eff_a = (ta.width * ta.depth) / (ta.price / ta.nLoads);
+                  double eff_b = (tb.width * tb.depth) / (tb.price / tb.nLoads);
+                  return eff_a > eff_b;
               });
 
-    // Precompute 13 rotation angles: 0°, 15°, ..., 180°
     for (int i = 0; i < 13; ++i)
         rotations_[i] = static_cast<double>(i) * 15.0;
 }
 
 void GreedySolver::run(std::atomic<bool>& stop_flag) {
-    (void)stop_flag;
+    (void)stop_flag; 
     fillPass();
-    updateBest(best_);
 }
 
 void GreedySolver::fillPass() {
-    resetLayout(); // clear best_.bays and grid_
-
+    resetLayout(); 
     if (info_.warehousePolygon.empty() || info_.bayTypes.empty()) return;
 
-    // Seed candidate set with warehouse AABB bottom-left corner
-    double min_x = info_.warehousePolygon[0].x;
-    double min_y = info_.warehousePolygon[0].y;
-    for (const auto& p : info_.warehousePolygon) {
-        if (p.x < min_x) min_x = p.x;
-        if (p.y < min_y) min_y = p.y;
-    }
+    std::vector<Point2D> anchors = generateSafeAnchors();
+    SpatialGrid decode_grid(largestBayDim(info_));
+    constexpr int kMaxAnchors = 500;
 
-    CandidateSet candidates;
-    candidates.insert({min_x, min_y});
+    bool placed_any_in_pass = true;
+    
+    while (placed_any_in_pass) {
+        placed_any_in_pass = false;
 
-    // Also seed with obstacle corners (potential tight-packing spots)
-    for (const auto& obs : info_.obstacles) {
-        candidates.insert({obs.x,             obs.y});
-        candidates.insert({obs.x + obs.width, obs.y});
-        candidates.insert({obs.x,             obs.y + obs.depth});
-        candidates.insert({obs.x + obs.width, obs.y + obs.depth});
-    }
+        std::sort(anchors.begin(), anchors.end(),[](const Point2D& lhs, const Point2D& rhs) {
+            auto quantize =[](double v) { return static_cast<long long>(std::round(v * 100.0)); };
+            long long q_ly = quantize(lhs.y);
+            long long q_ry = quantize(rhs.y);
+            if (q_ly != q_ry) return q_ly < q_ry;
+            return quantize(lhs.x) < quantize(rhs.x);
+        });
 
-    std::array<double, 13> rots = rotations_;
-
-    while (!candidates.empty()) {
-        // Pop the bottom-left candidate (smallest y, then smallest x)
-        Point2D pos = *candidates.begin();
-        candidates.erase(candidates.begin());
-
-        bool placed = false;
         for (int type_idx : sorted_type_ids_) {
-            if (placed) break;
             const BayType& bt = info_.bayTypes[type_idx];
+            bool bay_placed = false;
+            Bay best_candidate{bt.id, 0.0, 0.0, 0.0};
 
-            // Shuffle rotations per position for inter-thread diversity
-            std::shuffle(rots.begin(), rots.end(), rng_);
-
-            for (double rot : rots) {
-                Bay candidate{bt.id, pos.x, pos.y, rot};
-                if (tryPlace(candidate)) {
-                    // Add the new bay's solid corners as future candidates
-                    OBB solid = CollisionChecker::createSolidOBB(candidate, &info_);
-                    for (int i = 0; i < 4; ++i)
-                        candidates.insert(solid.corners[i]);
-                    placed = true;
-                    break;
+            for (const auto& anchor : anchors) {
+                for (double angle : {0.0, 90.0, 180.0, 270.0}) {
+                    Bay candidate{bt.id, anchor.x, anchor.y, angle};
+                    if (CollisionChecker::isValidPlacement(candidate, best_.bays, &info_, &decode_grid)) {
+                        best_candidate = candidate;
+                        bay_placed = true;
+                        break;
+                    }
                 }
+                if (bay_placed) break; 
+            }
+
+            if (bay_placed) {
+                best_.bays.push_back(best_candidate);
+                OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
+                decode_grid.insertBay(static_cast<int>(best_.bays.size() - 1), solid);
+
+                OBB gap = CollisionChecker::createGapOBB(best_candidate, &info_);
+                double min_x = solid.corners[0].x, max_x = min_x;
+                double min_y = solid.corners[0].y, max_y = min_y;
+                expandBounds(gap, min_x, max_x, min_y, max_y);
+                expandBounds(solid, min_x, max_x, min_y, max_y);
+
+                anchors.push_back({max_x, min_y});
+                anchors.push_back({min_x, max_y});
+                if (anchors.size() > static_cast<size_t>(kMaxAnchors)) anchors.resize(kMaxAnchors);
+
+                placed_any_in_pass = true;
+                break; 
             }
         }
     }
 
     calculateMetrics(best_);
     best_.producedBy = name();
+    updateBest(best_);
 }

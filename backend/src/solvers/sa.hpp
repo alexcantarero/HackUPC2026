@@ -41,7 +41,9 @@ private:
     // Move primitives — return true if move was accepted
     bool moveRelocate(double T);
     bool moveReplaceType(double T);
-    bool moveJitter(double T);
+    
+    bool moveAddBay(double T);
+    bool moveRemoveBay(double T);
 
     // Incremental helpers
     double bayRatio(int typeId) const;
