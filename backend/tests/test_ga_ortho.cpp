@@ -13,8 +13,8 @@ StaticState makeStateForDecode() {
         {0, 0}, {1000, 0}, {1000, 1000}, {0, 1000}
     };
     state.ceilingRegions = {{0, 1000}};
-    state.bayTypes.push_back({1, 100, 100, 10, 0, 2, 10});
-    state.bayTypes.push_back({2, 120, 80, 10, 0, 5, 5});
+    state.bayTypes.push_back({1, 100, 100, 10, 20, 2, 10});
+    state.bayTypes.push_back({2, 120, 80, 10, 20, 5, 5});
     return state;
 }
 
@@ -80,8 +80,8 @@ void test_decode_and_fitness() {
     Solution decoded = ga.decodeOrthogonalBLF(chromosome);
 
     assert(decoded.bays.size() == 2);
-    assert(std::abs(decoded.bays[0].x - 1e-3) < 1e-9);
-    assert(std::abs(decoded.bays[0].y - 1e-3) < 1e-9);
+    assert(std::abs(decoded.bays[0].x) < 1e-9);
+    assert(std::abs(decoded.bays[0].y) < 1e-9);
 
     for (const auto& bay : decoded.bays) {
         assert(bay.rotation == 0.0 ||
