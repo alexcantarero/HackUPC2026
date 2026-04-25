@@ -7,12 +7,12 @@
 - [x] Task: Update the main entry point to parse algorithm selection and invoke the new `JostleAlgorithm`. 50666e7
 - [x] Task: Conductor - User Manual Verification 'Algorithm Core Setup' (Protocol in workflow.md)
 
-## Phase 2: Local Search Operators
+## Phase 2: Local Search Operators [checkpoint: b02c078]
 - [x] Task: Implement the `translateBay(State& state, int bayIndex, double deltaX, double deltaY)` mutation operator. 45d5eb0
 - [x] Task: Implement the `rotateBay(State& state, int bayIndex, double deltaAngle)` mutation operator. 45d5eb0
 - [x] Task: Implement the `swapBays(State& state, int bayIndex1, int bayIndex2)` or `changeBayType` mutation operator. 45d5eb0
 - [x] Task: Integrate `CollisionChecker` and `SpatialGrid` to validate the mutated state after applying any operator. 45d5eb0
-- [ ] Task: Conductor - User Manual Verification 'Local Search Operators' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Local Search Operators' (Protocol in workflow.md)
 
 ## Phase 3: Algorithm Logic and Optimization Loop
 - [ ] Task: Implement the objective function evaluation for the `State`.
