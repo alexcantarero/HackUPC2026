@@ -196,7 +196,8 @@ int main(int argc, char* argv[]) {
     if (io::writeSolution(finalCsvName, *winner)) {
         std::cout << "Successfully saved solution to: " << finalCsvName << "\n";
     } else {
-        std::cerr << "Failed to save solution to: " << finalCsvName << "\n";
+        std::cerr << "Failed to save solution to: " << finalCsvName << "saving to default \"solution.csv\"" << "\n";
+        io::writeSolution("solution.csv", *winner);
     }
 
     return 0;
