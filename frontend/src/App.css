@@ -17,3 +17,99 @@
   height: 100%;
   display: block;
 }
+
+.solver-panel {
+  position: absolute;
+  top: 72px;
+  right: 16px;
+  z-index: 30;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 88px);
+  overflow: auto;
+  background: rgba(17, 21, 34, 0.93);
+  color: #f3f6fc;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+}
+
+.solver-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.solver-panel-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.solver-close {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.solver-form {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.solver-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.88rem;
+}
+
+.solver-form input[type="file"] {
+  color: #f3f6fc;
+}
+
+.solver-form button {
+  margin-top: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #1c8b5a;
+  color: white;
+  font-weight: 600;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.solver-form button:disabled {
+  cursor: not-allowed;
+  background: #35614e;
+}
+
+.solver-error {
+  margin-top: 10px;
+  color: #ff8570;
+}
+
+.solver-result {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.solver-result p {
+  margin: 0;
+}
+
+.solver-result pre {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin: 8px 0 0;
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

@@ -19,6 +19,7 @@ type TopbarProps = {
   onCaseChange: (caseNumber: number) => void;
   onToggleCameraView: () => void;
   onToggleGaps: () => void;
+  onOpenSolverPanel: () => void;
   showGaps: boolean;
 };
 
@@ -27,6 +28,7 @@ export default function Topbar({
   onCaseChange,
   onToggleCameraView,
   onToggleGaps,
+  onOpenSolverPanel,
   showGaps,
 }: TopbarProps) {
   const [casesMenuAnchor, setCasesMenuAnchor] = useState<null | HTMLElement>(
@@ -55,15 +57,19 @@ export default function Topbar({
       <div className="trailing-functions">
         <Button
           variant="contained"
-          sx={{ 
+          sx={{
             backgroundColor: showGaps ? "#ed8200" : "#288aed",
-            "&:hover": { backgroundColor: showGaps ? "#d67500" : "#2176c7" }
+            "&:hover": { backgroundColor: showGaps ? "#d67500" : "#2176c7" },
           }}
           onClick={onToggleGaps}
         >
           <ViewInArIcon />
         </Button>
-        <Button variant="contained" sx={{ backgroundColor: "#288aed" }}>
+        <Button
+          variant="contained"
+          sx={{ backgroundColor: "#288aed" }}
+          onClick={onOpenSolverPanel}
+        >
           <FileUploadIcon />
         </Button>
         <Button

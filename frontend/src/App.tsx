@@ -1,6 +1,7 @@
 import "./App.css";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import FadingDollhouseElement from "./components/FadingDollhouseElement";
@@ -12,6 +13,20 @@ import {
 import Topbar from "./components/Topbar/Topbar";
 
 const DEFAULT_CASE_NUMBER = 3;
+
+type RequiredCsvField = "warehouse" | "obstacles" | "ceiling" | "types_of_bays";
+
+type SolveResponse = {
+  ok: boolean;
+  message: string;
+  stdout: string;
+  stderr: string;
+  bestScore: number | null;
+  outputFileName: string | null;
+  outputCsv: string | null;
+  exitCode: number;
+  durationMs: number;
+};
 
 // --- FILE LOADERS ---
 const warehouseFiles = import.meta.glob(
@@ -123,8 +138,8 @@ function GapBox({
   height: number;
 }) {
   const gapDepth = gap * WORLD_SCALE;
-  // Position it in FRONT of the bay. 
-  // The group is at [anchorX, FLOOR_Y, anchorZ]. 
+  // Position it in FRONT of the bay.
+  // The group is at [anchorX, FLOOR_Y, anchorZ].
   // ProceduralShelf is centered at [width/2, ..., -depth/2].
   // So "Front" is at Z = -depth. The gap should extend from -depth to -depth - gapDepth.
   return (
@@ -235,7 +250,6 @@ function ProceduralShelf({
   );
 }
 
-
 // --- MAIN COMPONENT ---
 export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
@@ -245,10 +259,98 @@ export default function App() {
   const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
   const [, setIsTopView] = useState(false);
   const [showGaps, setShowGaps] = useState(false);
+  const [showSolverPanel, setShowSolverPanel] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<
+    Partial<Record<RequiredCsvField, File>>
+  >({});
+  const [isSubmittingSolver, setIsSubmittingSolver] = useState(false);
+  const [solverError, setSolverError] = useState("");
+  const [solverResult, setSolverResult] = useState<SolveResponse | null>(null);
 
   const toggleGaps = useCallback(() => {
     setShowGaps((prev) => !prev);
   }, []);
+
+  const setUploadFile = useCallback(
+    (field: RequiredCsvField, file: File | null) => {
+      setUploadFiles((prev) => {
+        if (!file) {
+          const next = { ...prev };
+          delete next[field];
+          return next;
+        }
+        return { ...prev, [field]: file };
+      });
+    },
+    [],
+  );
+
+  const openSolverPanel = useCallback(() => {
+    setShowSolverPanel(true);
+  }, []);
+
+  const closeSolverPanel = useCallback(() => {
+    if (isSubmittingSolver) return;
+    setShowSolverPanel(false);
+  }, [isSubmittingSolver]);
+
+  const submitSolverRequest = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      const requiredFields: RequiredCsvField[] = [
+        "warehouse",
+        "obstacles",
+        "ceiling",
+        "types_of_bays",
+      ];
+
+      for (const field of requiredFields) {
+        if (!uploadFiles[field]) {
+          setSolverError(`Missing file: ${field}.csv`);
+          return;
+        }
+      }
+
+      setSolverError("");
+      setSolverResult(null);
+      setIsSubmittingSolver(true);
+
+      const formData = new FormData();
+      for (const field of requiredFields) {
+        formData.append(field, uploadFiles[field] as File);
+      }
+      formData.append("includeOutputCsv", "true");
+
+      try {
+        const apiBase =
+          import.meta.env.VITE_SOLVER_API_URL ?? "http://localhost:8787";
+        const response = await fetch(`${apiBase}/api/solve`, {
+          method: "POST",
+          body: formData,
+        });
+
+        const payload = (await response.json()) as SolveResponse & {
+          message?: string;
+        };
+
+        if (!response.ok || !payload.ok) {
+          setSolverError(payload.message ?? "Solver request failed");
+          setSolverResult(null);
+          return;
+        }
+
+        setSolverResult(payload);
+      } catch {
+        setSolverError(
+          "Unable to reach solver API. Start it with: npm run api",
+        );
+      } finally {
+        setIsSubmittingSolver(false);
+      }
+    },
+    [uploadFiles],
+  );
 
   const setTopView = useCallback(() => {
     cameraControlsRef.current?.setLookAt(
@@ -373,8 +475,100 @@ export default function App() {
         onCaseChange={setCaseNumber}
         onToggleCameraView={toggleCameraView}
         onToggleGaps={toggleGaps}
+        onOpenSolverPanel={openSolverPanel}
         showGaps={showGaps}
       />
+      {showSolverPanel && (
+        <div className="solver-panel" role="dialog" aria-label="Solver upload">
+          <div className="solver-panel-header">
+            <h2>Send 4 CSV files to solver</h2>
+            <button
+              type="button"
+              className="solver-close"
+              onClick={closeSolverPanel}
+              disabled={isSubmittingSolver}
+            >
+              Close
+            </button>
+          </div>
+          <form className="solver-form" onSubmit={submitSolverRequest}>
+            <label>
+              warehouse.csv
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) =>
+                  setUploadFile("warehouse", event.target.files?.[0] ?? null)
+                }
+              />
+            </label>
+            <label>
+              obstacles.csv
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) =>
+                  setUploadFile("obstacles", event.target.files?.[0] ?? null)
+                }
+              />
+            </label>
+            <label>
+              ceiling.csv
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) =>
+                  setUploadFile("ceiling", event.target.files?.[0] ?? null)
+                }
+              />
+            </label>
+            <label>
+              types_of_bays.csv
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) =>
+                  setUploadFile(
+                    "types_of_bays",
+                    event.target.files?.[0] ?? null,
+                  )
+                }
+              />
+            </label>
+            <button type="submit" disabled={isSubmittingSolver}>
+              {isSubmittingSolver ? "Running solver..." : "Upload and run"}
+            </button>
+          </form>
+          {solverError && <p className="solver-error">{solverError}</p>}
+          {solverResult && (
+            <div className="solver-result">
+              <p>Status: {solverResult.message}</p>
+              <p>Best score: {solverResult.bestScore ?? "N/A"}</p>
+              <p>Exit code: {solverResult.exitCode}</p>
+              <p>Runtime: {Math.round(solverResult.durationMs)} ms</p>
+              {solverResult.outputFileName && (
+                <p>Output file: {solverResult.outputFileName}</p>
+              )}
+              <details>
+                <summary>stdout</summary>
+                <pre>{solverResult.stdout}</pre>
+              </details>
+              {solverResult.stderr && (
+                <details>
+                  <summary>stderr</summary>
+                  <pre>{solverResult.stderr}</pre>
+                </details>
+              )}
+              {solverResult.outputCsv && (
+                <details>
+                  <summary>output csv</summary>
+                  <pre>{solverResult.outputCsv}</pre>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <div className="canvas-container">
         <Canvas
           className="canvas"
@@ -456,7 +650,7 @@ export default function App() {
               // 4. Generate color based on ID
               // Shift the hue by 40 degrees and restrict to a 300-degree range
               // to avoid the red spectrum (0-40 and 340-360) used by gaps.
-              const hue = 40 + (item.id * 137.5) % 300; 
+              const hue = 40 + ((item.id * 137.5) % 300);
               const color = `hsl(${hue}, 85%, 45%)`;
 
               return (
