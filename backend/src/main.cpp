@@ -15,7 +15,7 @@
 // ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
 // #include "solvers/greedy.hpp"
 // #include "solvers/sa.hpp"
-// #include "solvers/jostle.hpp"
+#include "solvers/jostle_algorithm.hpp"
 // #include "solvers/vns.hpp"
 
 static constexpr int    NUM_THREADS   = 6;
@@ -54,7 +54,7 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
     if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
     if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
     // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
-    // if (algoName == "jostle")   return std::make_unique<Jostle>(info, seed);
+    if (algoName == "jostle")   return std::make_unique<JostleAlgorithm>(info, seed, -1);
     // if (algoName == "vns")      return std::make_unique<Vns>(info, seed);
 
     std::cerr << "[warn] Unknown algorithm '" << algoName << "'. No solver created.\n";
