@@ -52,7 +52,6 @@ body {
   top: 20px;
   right: 20px;
   width: 340px;
-  padding: 24px;
 }
 
 .solver-results-panel {
@@ -66,7 +65,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 16px 0;
+  padding: 24px 24px 0;
   margin-bottom: 24px;
 }
 
@@ -84,6 +83,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  padding: 0 24px 24px;
 }
 
 .solver-form label {
@@ -131,7 +131,7 @@ body {
 
 /* --- RESULTS CARDS --- */
 .solver-comparison {
-  padding: 0 16px 16px;
+  padding: 0 24px 24px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
