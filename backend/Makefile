@@ -8,6 +8,7 @@ SRCS = $(SRCDIR)/main.cpp \
        $(SRCDIR)/core/score.cpp \
        $(SRCDIR)/io/parser.cpp \
        $(SRCDIR)/solvers/greedy.cpp \
+       $(SRCDIR)/solvers/ga_ortho.cpp \
 	$(SRCDIR)/solvers/genetic_algorithm.cpp \
 	$(SRCDIR)/solvers/ga_angle.cpp \
        $(SRCDIR)/solvers/ga_ortho.cpp
