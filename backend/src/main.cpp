@@ -114,8 +114,10 @@ int main(int argc, char* argv[]) {
     std::vector<std::thread> threads;
     threads.reserve(algos.size());
 
-    for (auto& algo : algos)
-        threads.emplace_back([&algo, &stop_flag] { algo->run(stop_flag); });
+    for (auto& algo : algos) {
+        Algorithm* p = algo.get();
+        threads.emplace_back([p, &stop_flag] { p->run(stop_flag); });
+    }
 
     // 4. Wait for time limit, then signal stop
     std::this_thread::sleep_for(
@@ -130,8 +132,8 @@ int main(int argc, char* argv[]) {
         const Solution& sol = algo->best();
         if (!sol.bays.empty() &&
             (winner == nullptr || sol.score < winner->score))
-            winner = &sol;
-    }
+                winner = &sol;
+            }
 
     if (!winner || winner->bays.empty()) {
         std::cerr << "No valid solution found.\n";
