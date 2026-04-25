@@ -49,16 +49,16 @@ body {
 }
 
 .solver-panel {
-  top: 20px;
+  top: 88px;
   right: 20px;
   width: 340px;
 }
 
 .solver-results-panel {
-  top: 20px;
+  top: 88px;
   left: 20px;
   width: 380px;
-  max-height: calc(100vh - 40px);
+  max-height: calc(100vh - 108px);
 }
 
 .solver-panel-header {
