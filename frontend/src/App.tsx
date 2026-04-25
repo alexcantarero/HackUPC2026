@@ -551,153 +551,169 @@ export default function App() {
         showGaps={showGaps}
       />
       {showSolverPanel && (
-        <div className="solver-panel" role="dialog" aria-label="Solver upload">
-          <div className="solver-panel-header">
-            <h2>Solver</h2>
-            <button
-              type="button"
-              className="solver-close"
-              onClick={closeSolverPanel}
-              disabled={isSubmittingSolver}
-            >
-              Close
-            </button>
-          </div>
-          <form className="solver-form" onSubmit={submitSolverRequest}>
-            <label>
-              warehouse.csv
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) =>
-                  setUploadFile("warehouse", event.target.files?.[0] ?? null)
-                }
-              />
-            </label>
-            <label>
-              obstacles.csv
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) =>
-                  setUploadFile("obstacles", event.target.files?.[0] ?? null)
-                }
-              />
-            </label>
-            <label>
-              ceiling.csv
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) =>
-                  setUploadFile("ceiling", event.target.files?.[0] ?? null)
-                }
-              />
-            </label>
-            <label>
-              types_of_bays.csv
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) =>
-                  setUploadFile(
-                    "types_of_bays",
-                    event.target.files?.[0] ?? null,
-                  )
-                }
-              />
-            </label>
-            <button type="submit" disabled={isSubmittingSolver}>
-              {isSubmittingSolver ? "Running solver..." : "Upload and run"}
-            </button>
-          </form>
-          <div className="solver-comparison-actions">
-            <button
-              type="button"
-              className="solver-secondary"
-              onClick={runMockComparison}
-            >
-              Mock compare greedy / sa / genetic
-            </button>
-            <p>
-              This is a mock preview of a parallel run summary. Each card below
-              represents one algorithm result.
-            </p>
-          </div>
+        <>
           <div
-            className="solver-comparison"
-            aria-label="Mock comparison results"
+            className="solver-panel"
+            role="dialog"
+            aria-label="Solver upload"
           >
-            {comparisonResults.length === 0 ? (
-              <div className="solver-comparison-empty">
-                No comparison results yet. Use the button above to preview the
-                three algorithm cards.
+            <div className="solver-panel-header">
+              <h2>Solver</h2>
+              <button
+                type="button"
+                className="solver-close"
+                onClick={closeSolverPanel}
+                disabled={isSubmittingSolver}
+              >
+                Close
+              </button>
+            </div>
+            <form className="solver-form" onSubmit={submitSolverRequest}>
+              <label>
+                warehouse.csv
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) =>
+                    setUploadFile("warehouse", event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <label>
+                obstacles.csv
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) =>
+                    setUploadFile("obstacles", event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <label>
+                ceiling.csv
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) =>
+                    setUploadFile("ceiling", event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <label>
+                types_of_bays.csv
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) =>
+                    setUploadFile(
+                      "types_of_bays",
+                      event.target.files?.[0] ?? null,
+                    )
+                  }
+                />
+              </label>
+              <button type="submit" disabled={isSubmittingSolver}>
+                {isSubmittingSolver ? "Running solver..." : "Upload and run"}
+              </button>
+            </form>
+            <div className="solver-comparison-actions">
+              <button
+                type="button"
+                className="solver-secondary"
+                onClick={runMockComparison}
+              >
+                Mock compare greedy / sa / genetic
+              </button>
+              <p>
+                This is a mock preview of a parallel run summary. Results are
+                shown in the left panel.
+              </p>
+            </div>
+            {solverError && <p className="solver-error">{solverError}</p>}
+            {solverResult && (
+              <div className="solver-result">
+                <p>Status: {solverResult.message}</p>
+                <p>Best score: {solverResult.bestScore ?? "N/A"}</p>
+                <p>Exit code: {solverResult.exitCode}</p>
+                <p>Runtime: {Math.round(solverResult.durationMs)} ms</p>
+                {solverResult.outputFileName && (
+                  <p>Output file: {solverResult.outputFileName}</p>
+                )}
+                <details>
+                  <summary>stdout</summary>
+                  <pre>{solverResult.stdout}</pre>
+                </details>
+                {solverResult.stderr && (
+                  <details>
+                    <summary>stderr</summary>
+                    <pre>{solverResult.stderr}</pre>
+                  </details>
+                )}
+                {solverResult.outputCsv && (
+                  <details>
+                    <summary>output csv</summary>
+                    <pre>{solverResult.outputCsv}</pre>
+                  </details>
+                )}
               </div>
-            ) : (
-              comparisonResults.map((result) => (
-                <article
-                  key={result.algorithm}
-                  className="solver-comparison-card"
-                >
-                  <div className="solver-comparison-card-header">
-                    <div>
-                      <span className="solver-comparison-badge">
-                        {result.algorithm}
-                      </span>
-                      <h3>{result.title}</h3>
-                    </div>
-                    <span className="solver-comparison-status">
-                      {result.status}
-                    </span>
-                  </div>
-                  <div className="solver-comparison-metrics">
-                    <div>
-                      <span>Best score</span>
-                      <strong>{result.bestScore}</strong>
-                    </div>
-                    <div>
-                      <span>Runtime</span>
-                      <strong>{result.runtimeMs}</strong>
-                    </div>
-                    <div>
-                      <span>Output</span>
-                      <strong>{result.outputFile}</strong>
-                    </div>
-                  </div>
-                  <p className="solver-comparison-note">{result.note}</p>
-                </article>
-              ))
             )}
           </div>
-          {solverError && <p className="solver-error">{solverError}</p>}
-          {solverResult && (
-            <div className="solver-result">
-              <p>Status: {solverResult.message}</p>
-              <p>Best score: {solverResult.bestScore ?? "N/A"}</p>
-              <p>Exit code: {solverResult.exitCode}</p>
-              <p>Runtime: {Math.round(solverResult.durationMs)} ms</p>
-              {solverResult.outputFileName && (
-                <p>Output file: {solverResult.outputFileName}</p>
-              )}
-              <details>
-                <summary>stdout</summary>
-                <pre>{solverResult.stdout}</pre>
-              </details>
-              {solverResult.stderr && (
-                <details>
-                  <summary>stderr</summary>
-                  <pre>{solverResult.stderr}</pre>
-                </details>
-              )}
-              {solverResult.outputCsv && (
-                <details>
-                  <summary>output csv</summary>
-                  <pre>{solverResult.outputCsv}</pre>
-                </details>
+
+          <div
+            className="solver-results-panel"
+            role="region"
+            aria-label="Algorithm results"
+          >
+            <div className="solver-panel-header">
+              <h2>Algorithm Results</h2>
+            </div>
+            <div
+              className="solver-comparison"
+              aria-label="Mock comparison results"
+            >
+              {comparisonResults.length === 0 ? (
+                <div className="solver-comparison-empty">
+                  No comparison results yet. Run the mock comparison from the
+                  right panel.
+                </div>
+              ) : (
+                comparisonResults.map((result) => (
+                  <article
+                    key={result.algorithm}
+                    className="solver-comparison-card"
+                  >
+                    <div className="solver-comparison-card-header">
+                      <div>
+                        <span className="solver-comparison-badge">
+                          {result.algorithm}
+                        </span>
+                        <h3>{result.title}</h3>
+                      </div>
+                      <span className="solver-comparison-status">
+                        {result.status}
+                      </span>
+                    </div>
+                    <div className="solver-comparison-metrics">
+                      <div>
+                        <span>Best score</span>
+                        <strong>{result.bestScore}</strong>
+                      </div>
+                      <div>
+                        <span>Runtime</span>
+                        <strong>{result.runtimeMs}</strong>
+                      </div>
+                      <div>
+                        <span>Output</span>
+                        <strong>{result.outputFile}</strong>
+                      </div>
+                    </div>
+                    <p className="solver-comparison-note">{result.note}</p>
+                  </article>
+                ))
               )}
             </div>
-          )}
-        </div>
+          </div>
+        </>
       )}
       <div className="canvas-container">
         <Canvas

@@ -36,6 +36,24 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+.solver-results-panel {
+  position: absolute;
+  top: 72px;
+  left: 16px;
+  z-index: 30;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 88px);
+  overflow: auto;
+  background: linear-gradient(180deg, rgba(18, 18, 20, 0.96), rgba(30, 30, 34, 0.97));
+  color: #e9edf3;
+  border: 1px solid rgba(40, 138, 237, 0.26);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 18px 44px rgba(14, 64, 113, 0.22);
+  backdrop-filter: blur(6px);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
 .solver-panel-header {
   display: flex;
   align-items: center;
@@ -274,4 +292,23 @@
   max-height: 220px;
   overflow: auto;
   white-space: pre-wrap;
+}
+
+@media (max-width: 960px) {
+  .solver-panel,
+  .solver-results-panel {
+    width: calc(100vw - 32px);
+    left: 16px;
+    right: 16px;
+  }
+
+  .solver-panel {
+    top: 72px;
+    max-height: calc(50dvh - 90px);
+  }
+
+  .solver-results-panel {
+    top: calc(50dvh + 8px);
+    max-height: calc(50dvh - 24px);
+  }
 }
