@@ -17,7 +17,7 @@ export default function FadingDollhouseElement({
   positionY,
   thresholdY,
   color = "#d6d6d6",
-  side = THREE.DoubleSide,
+  side = THREE.BackSide,
 }: FadingDollhouseElementProps) {
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
 

@@ -145,16 +145,29 @@ export default function App() {
       const exporter = new USDZExporter();
       
       // Clone the warehouse to scale it for table-top AR without affecting the web view.
-      // The scene is ~40 units (meters) wide. Scale by 0.025 to make it ~1 meter wide.
       const arGroup = warehouseRef.current.clone(true);
-      arGroup.scale.set(0.025, 0.025, 0.025);
-      arGroup.updateMatrixWorld(true);
+      
+      // Fix materials for AR natively: USDZ expects DoubleSide so walls aren't invisible
+      arGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material) {
+          // Clone material to prevent affecting the live web scene
+          child.material = child.material.clone();
+          child.material.side = THREE.DoubleSide;
+        }
+      });
+
+      // Wrap in an outer group to ensure scale is properly applied by the exporter
+      const exportGroup = new THREE.Group();
+      exportGroup.add(arGroup);
+      // The scene is ~40 units wide. Scale by 0.005 to make it exactly 0.2 meters (20 cm) wide for small tables.
+      exportGroup.scale.set(0.005, 0.005, 0.005);
+      exportGroup.updateMatrixWorld(true);
 
       // Handle older Three.js USDZExporter callback signature
       const arrayBuffer = await new Promise<any>((resolve, reject) => {
         try {
           // @ts-ignore
-          const result = exporter.parse(arGroup, (res) => resolve(res), reject);
+          const result = exporter.parse(exportGroup, (res) => resolve(res), reject);
           if ((result as any) && (result as any) instanceof Promise) {
             (result as any).then(resolve).catch(reject);
           }
@@ -424,7 +437,7 @@ export default function App() {
 
                     {sceneGeometry.walls.map((wall, index) => (
                       <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall} castShadow receiveShadow>
-                        <meshStandardMaterial color="#c4c4c4" side={THREE.DoubleSide} />
+                        <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
                       </mesh>
                     ))}
 
@@ -440,7 +453,7 @@ export default function App() {
                         castShadow
                         receiveShadow
                       >
-                        <meshStandardMaterial color="#ec8200" side={THREE.DoubleSide} />
+                        <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
                       </mesh>
                     ))}
 
