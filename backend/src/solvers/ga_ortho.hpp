@@ -14,4 +14,6 @@ public:
 
     // Phase 1: Genetic Sequence Operators
     Chromosome crossoverOX1(const Chromosome& p1, const Chromosome& p2);
+    void mutateSwap(Chromosome& chromosome);
+    void mutateScramble(Chromosome& chromosome);
 };
