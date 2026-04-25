@@ -50,7 +50,7 @@ public:
      *  1. Solid is fully inside the warehouse polygon
      *  2. Solid does not overlap any obstacle
      *  3. Gap does not overlap any obstacle
-     *  4. Ceiling height satisfied across the solid's x-span
+     *  4. Ceiling height satisfied across both solid and gap x-spans
      *  5. Solid does not overlap any placed bay's solid
      *  6. Solid does not overlap any placed bay's gap
      *  7. Gap does not overlap any placed bay's solid

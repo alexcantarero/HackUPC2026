@@ -225,6 +225,36 @@ void testSolidVsGapIsInvalid() {
          !CollisionChecker::isValidPlacement(second, placed, &s));
 }
 
+void testCeilingOnGap() {
+    SECTION("isValidPlacement — ceiling applies to gap too");
+
+    // Bay type 0: width=800, depth=1200, height=2800, gap=200
+    //
+    // At rotation=270°, pivot=(5000,3000):
+    //   solid x-span = [5000, 6200]   (pivot_x to pivot_x + depth)
+    //   gap   x-span = [6200, 6400]   (immediately beyond solid)
+    //
+    // Ceiling: high [0,6200) → solid OK
+    //          low  [6200,∞) → gap fails (2800 > 2000)
+
+    StaticState s = makeBasicState();
+    Bay bay = makeBay(0, 5000, 3000, 270);
+
+    s.ceilingRegions = {{0, 5000}};
+    TEST("High ceiling everywhere — valid",
+         CollisionChecker::isValidPlacement(bay, {}, &s));
+
+    // Low ceiling that only covers the gap x-span — solid passes, gap fails
+    s.ceilingRegions = {{0, 5000}, {6200, 2000}};
+    TEST("Low ceiling over gap x-span only — invalid",
+         !CollisionChecker::isValidPlacement(bay, {}, &s));
+
+    // Low ceiling that covers the solid x-span — fails too (regression guard)
+    s.ceilingRegions = {{0, 2000}};
+    TEST("Low ceiling over solid x-span — invalid",
+         !CollisionChecker::isValidPlacement(bay, {}, &s));
+}
+
 void testIsValidPlacementWithGrid() {
     SECTION("isValidPlacement — with SpatialGrid (broad-phase)");
 
@@ -281,6 +311,7 @@ int main() {
     testIsValidPlacementInterBay();
     testGapVsGapIsValid();
     testSolidVsGapIsInvalid();
+    testCeilingOnGap();
     testIsValidPlacementWithGrid();
 
     std::cout << "\n=== Results: " << passed << " passed, " << failed << " failed ===\n";

@@ -98,8 +98,11 @@ bool CollisionChecker::isValidPlacement(
     // 1. Solid must be fully inside the warehouse polygon
     if (!isOBBInsidePolygon(solidOBB, staticInfo->warehousePolygon)) return false;
 
-    // 2. Ceiling constraint on solid
+    // 2. Ceiling constraint on solid and gap.
+    // The gap is the forklift aisle — if the ceiling is too low there, the bay
+    // is inaccessible even if the solid itself fits.
     if (!checkCeiling(solidOBB, type->height, staticInfo->ceilingRegions)) return false;
+    if (!checkCeiling(gapOBB,   type->height, staticInfo->ceilingRegions)) return false;
 
     // 3 & 4. Solid and gap must not overlap any obstacle
     for (const auto& obs : staticInfo->obstacles) {
