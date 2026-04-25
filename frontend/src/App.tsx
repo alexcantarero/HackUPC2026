@@ -378,6 +378,7 @@ export default function App() {
         formData.append(field, uploadFiles[field] as File);
       }
       formData.append("includeOutputCsv", "true");
+      formData.append("mode", "multiple");
 
       try {
         const apiBase =
