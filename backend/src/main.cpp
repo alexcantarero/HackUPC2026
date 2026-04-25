@@ -101,7 +101,7 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
         
         std::unique_ptr<GeneticAlgorithm> ga;
         if (algoName == "ga_ortho") ga = std::make_unique<GAOrtho>(info, seed);
-        //else ga = std::make_unique<GAAngle>(info, seed);
+        else ga = std::make_unique<GAAngle>(info, seed);
         
         ga->setParams(ga_params);
         return ga;

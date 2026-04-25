@@ -1,4 +1,6 @@
 #include "ga_ortho.hpp"
+#include "../core/collision.hpp"
+#include "../core/types.hpp"
 #include <algorithm>
 #include <limits>
 #include <cmath>
@@ -21,7 +23,6 @@ Solution GAOrtho::decodeChromosome(const Chromosome& chromosome, std::atomic<boo
 Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<bool>& stop_flag) {
     Solution decoded;
     decoded.producedBy = name();
-    // Allow more dynamic anchors so it doesn't starve when navigating the L-shape
     constexpr int kMaxAnchors = 500;
 
     if (chromosome.empty()) {
@@ -32,17 +33,13 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
     std::vector<Point2D> anchors = generateSafeAnchors(); 
     SpatialGrid decode_grid(defaultCellSize());
 
-    // CRITICAL FIX: We DO NOT clear the base anchors after the first bay!
-    // The base anchors guarantee we can always start new clusters in different
-    // parts of the warehouse if the L-shape choke points get blocked.
-
     for (const SpatialGene& gene : chromosome) {
         if (stop_flag.load()) break; 
 
         const BayType* bay_type = getBayTypeById(gene.bay_id);
         if (bay_type == nullptr) continue;
 
-        // SPATIAL ANCHOR SNAP: Sort by distance to the Gene's Target (X, Y)
+        // SPATIAL ANCHOR SNAP: Sort by distance to the Gene's Target
         std::sort(anchors.begin(), anchors.end(), [&gene](const Point2D& lhs, const Point2D& rhs) {
             double d1 = (lhs.x - gene.target_x)*(lhs.x - gene.target_x) + (lhs.y - gene.target_y)*(lhs.y - gene.target_y);
             double d2 = (rhs.x - gene.target_x)*(rhs.x - gene.target_x) + (rhs.y - gene.target_y)*(rhs.y - gene.target_y);
@@ -96,12 +93,14 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
 
         anchors.push_back({max_x, min_y});
         anchors.push_back({min_x, max_y});
-
-        // Optional: Also add the center of the gap to encourage back-to-back placement
-        anchors.push_back(gap.center);
+        anchors.push_back(gap.center); 
+        
+        // Opposite Gap Anchor: Creates perfect back-to-back aisle snaps!
+        double dx = gap.center.x - solid.center.x;
+        double dy = gap.center.y - solid.center.y;
+        anchors.push_back({gap.center.x + dx, gap.center.y + dy});
 
         if (anchors.size() > static_cast<size_t>(kMaxAnchors)) {
-            // Keep the earliest anchors (the safe grid) + the newest anchors
             size_t safe_count = info_.warehousePolygon.size() + (info_.obstacles.size() * 4) + 10;
             if (kMaxAnchors > safe_count) {
                 anchors.erase(anchors.begin() + safe_count, anchors.begin() + safe_count + (anchors.size() - kMaxAnchors));
