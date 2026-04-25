@@ -1,11 +1,11 @@
 # Implementation Plan: Jostle Algorithm Track
 
-## Phase 1: Algorithm Core Setup
+## Phase 1: Algorithm Core Setup [checkpoint: 0ca47dc]
 - [x] Task: Create `JostleAlgorithm.hpp` and `JostleAlgorithm.cpp` extending the base `Algorithm` class. 50666e7
 - [x] Task: Implement the constructor to initialize parameters including `maxIterations`. 50666e7
 - [x] Task: Implement the `solve()` or `run()` method stub that returns the initial state or a dummy state. 50666e7
 - [x] Task: Update the main entry point to parse algorithm selection and invoke the new `JostleAlgorithm`. 50666e7
-- [ ] Task: Conductor - User Manual Verification 'Algorithm Core Setup' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Algorithm Core Setup' (Protocol in workflow.md)
 
 ## Phase 2: Local Search Operators
 - [ ] Task: Implement the `translateBay(State& state, int bayIndex, double deltaX, double deltaY)` mutation operator.
