@@ -16,3 +16,8 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 - [~] **Track: Implement Continuous Genetic Algorithm (GA Angle)**
   *Link: [./tracks/ga_angle_20260425/](./tracks/ga_angle_20260425/)*
+
+---
+
+- [ ] **Track: add a new track for a Jostle algorithm to compute the local search**
+  *Link: [./tracks/jostle_20260425/](./tracks/jostle_20260425/)*
