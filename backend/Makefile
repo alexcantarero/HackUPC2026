@@ -7,7 +7,8 @@ SRCS = $(SRCDIR)/main.cpp \
        $(SRCDIR)/core/collision.cpp \
        $(SRCDIR)/core/score.cpp \
        $(SRCDIR)/io/parser.cpp \
-       $(SRCDIR)/solvers/greedy.cpp
+       $(SRCDIR)/solvers/greedy.cpp \
+       $(SRCDIR)/solvers/ga_ortho.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 
