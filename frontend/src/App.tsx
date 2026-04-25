@@ -29,6 +29,15 @@ type SolveResponse = {
   csvInputs: Partial<Record<RequiredCsvField, string>>;
   exitCode: number;
   durationMs: number;
+  algorithmResults?: Array<{
+    algorithm_name: string;
+    score: number;
+    training_score: number;
+    time_took_to_find_best_sol: number;
+    number_of_bays: number;
+    outputFile?: string;
+    outputCsv?: string;
+  }>;
 };
 
 type AlgorithmKey = "greedy" | "sa" | "genetic";
@@ -400,6 +409,23 @@ export default function App() {
           return;
         }
 
+        if (payload.algorithmResults) {
+          const results = payload.algorithmResults.map((ar) => ({
+            algorithm: ar.algorithm_name as any,
+            title: ar.algorithm_name.replace("_", " ").toUpperCase(),
+            status: "success",
+            bestScore: ar.score.toLocaleString(),
+            runtimeMs: `${Math.round(ar.time_took_to_find_best_sol * 1000)} ms`,
+            outputFile: ar.outputFile || "N/A",
+            note: `Placed ${ar.number_of_bays} bays with training score ${ar.training_score.toFixed(2)}`,
+          }));
+          
+          // Sort so the lowest score is at the top
+          results.sort((a, b) => parseFloat(a.bestScore.replace(/,/g, '')) - parseFloat(b.bestScore.replace(/,/g, '')));
+          
+          setComparisonResults(results);
+        }
+
         setSolverResult(payload);
       } catch {
         setSolverError(
@@ -678,8 +704,7 @@ export default function App() {
             >
               {comparisonResults.length === 0 ? (
                 <div className="solver-comparison-empty">
-                  No comparison results yet. Run the mock comparison from the
-                  right panel.
+                  No algorithm results yet. Upload your CSV files and run the solver.
                 </div>
               ) : (
                 comparisonResults.map((result) => (

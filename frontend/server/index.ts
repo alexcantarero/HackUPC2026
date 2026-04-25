@@ -57,31 +57,6 @@ function parseBestScore(stdout: string): number | null {
   return Number.isFinite(score) ? score : null;
 }
 
-async function listOutputFiles(outputDir: string): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
-  let names: string[];
-  try {
-    names = await fs.readdir(outputDir);
-  } catch {
-    return result;
-  }
-
-  await Promise.all(
-    names.map(async (name) => {
-      if (!name.endsWith(".csv")) return;
-      const fullPath = path.join(outputDir, name);
-      try {
-        const stat = await fs.stat(fullPath);
-        result.set(name, stat.mtimeMs);
-      } catch {
-        // Ignore files removed between readdir and stat.
-      }
-    }),
-  );
-
-  return result;
-}
-
 function normalizeBoolean(value: unknown): boolean {
   if (typeof value !== "string") return false;
   return value.toLowerCase() === "true" || value === "1";
@@ -94,7 +69,6 @@ app.post(
     const workspaceRoot = path.resolve(__dirname, "../..");
     const backendDir = path.join(workspaceRoot, "backend");
     const solverPath = path.join(backendDir, "bin", "solver");
-    const outputDir = path.join(workspaceRoot, "data", "output");
 
     try {
       await fs.access(solverPath);
@@ -144,7 +118,6 @@ app.post(
 
     let caseDir = "";
     const startedAt = Date.now();
-    const beforeFiles = await listOutputFiles(outputDir);
 
     try {
       caseDir = await fs.mkdtemp(path.join(os.tmpdir(), "solver-case-"));
@@ -192,30 +165,7 @@ app.post(
         });
       });
 
-      const afterFiles = await listOutputFiles(outputDir);
-      let outputFileName: string | null = null;
-      let newestMtime = -1;
-
-      for (const [name, mtimeMs] of afterFiles.entries()) {
-        const previousMtime = beforeFiles.get(name) ?? -1;
-        if (mtimeMs <= previousMtime || mtimeMs < startedAt) continue;
-        if (mtimeMs > newestMtime) {
-          newestMtime = mtimeMs;
-          outputFileName = name;
-        }
-      }
-
-      let outputCsv: string | null = null;
-      if (includeOutputCsv && outputFileName) {
-        const outputPath = path.join(outputDir, outputFileName);
-        try {
-          outputCsv = await fs.readFile(outputPath, "utf8");
-        } catch {
-          outputCsv = null;
-        }
-      }
-
-      const payload: SolveResponse = {
+      const payload: SolveResponse & { algorithmResults?: any[] } = {
         ok: runResult.exitCode === 0,
         message:
           runResult.exitCode === 0
@@ -224,12 +174,62 @@ app.post(
         stdout: runResult.stdout,
         stderr: runResult.stderr,
         bestScore: parseBestScore(runResult.stdout),
-        outputFileName,
-        outputCsv,
+        outputFileName: null, // Will be overridden below if found
+        outputCsv: null,
         csvInputs,
         exitCode: runResult.exitCode,
         durationMs: Date.now() - startedAt,
       };
+
+      // Extract Output folder from stdout
+      const folderMatch = runResult.stdout.match(/Output folder:\s*(.+)/);
+      if (folderMatch && folderMatch[1]) {
+        // The path printed by C++ is relative to backend/bin, typically like ../data/output/...
+        // But let's just resolve it relative to backendDir
+        const rawFolderPath = folderMatch[1].trim();
+        const absoluteFolderPath = path.resolve(backendDir, rawFolderPath);
+        
+        try {
+          const filesInFolder = await fs.readdir(absoluteFolderPath);
+          const algorithmResults = [];
+
+          for (const file of filesInFolder) {
+            if (file.endsWith(".json")) {
+              const jsonContent = await fs.readFile(path.join(absoluteFolderPath, file), "utf8");
+              try {
+                const parsedJson = JSON.parse(jsonContent);
+                // Also get the corresponding CSV content if includeOutputCsv is true
+                let csvContent = null;
+                const csvFile = file.replace(".json", ".csv");
+                if (includeOutputCsv && filesInFolder.includes(csvFile)) {
+                  csvContent = await fs.readFile(path.join(absoluteFolderPath, csvFile), "utf8");
+                }
+
+                algorithmResults.push({
+                  ...parsedJson,
+                  outputFile: file,
+                  outputCsv: csvContent
+                });
+              } catch (e) {
+                console.error("Failed to parse JSON output file:", file);
+              }
+            }
+          }
+          
+          payload.algorithmResults = algorithmResults;
+          
+          // Fallback for legacy outputFileName/outputCsv handling (taking the best overall)
+          if (algorithmResults.length > 0) {
+            // Find the best score (lowest)
+            const bestRun = algorithmResults.reduce((prev, current) => (prev.score < current.score) ? prev : current);
+            payload.outputFileName = bestRun.outputFile;
+            payload.outputCsv = bestRun.outputCsv;
+          }
+
+        } catch (err) {
+          console.error("Failed to read output folder:", err);
+        }
+      }
 
       res.status(runResult.exitCode === 0 ? 200 : 500).json(payload);
     } catch (error) {
