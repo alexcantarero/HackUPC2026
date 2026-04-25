@@ -3,6 +3,29 @@
 #include <iostream>
 #include <cassert>
 #include <algorithm>
+#include <cmath>
+
+namespace {
+
+StaticState makeStateForDecode() {
+    StaticState state;
+    state.warehousePolygon = {
+        {0, 0}, {1000, 0}, {1000, 1000}, {0, 1000}
+    };
+    state.ceilingRegions = {{0, 1000}};
+    state.bayTypes.push_back({1, 100, 100, 10, 0, 2, 10});
+    state.bayTypes.push_back({2, 120, 80, 10, 0, 5, 5});
+    return state;
+}
+
+double expectedQForAllPlaced() {
+    const double sum_ratio = (10.0 / 2.0) + (5.0 / 5.0);
+    const double used_area = (100.0 * 100.0) + (120.0 * 80.0);
+    const double warehouse_area = 1000.0 * 1000.0;
+    return sum_ratio * sum_ratio - (used_area / warehouse_area);
+}
+
+}  // namespace
 
 void test_crossover() {
     StaticState state;
@@ -49,9 +72,34 @@ void test_mutation() {
     std::cout << "test_mutation scramble passed!" << std::endl;
 }
 
+void test_decode_and_fitness() {
+    StaticState state = makeStateForDecode();
+    GAOrtho ga(state, 7);
+
+    GAOrtho::Chromosome chromosome = {1, 2};
+    Solution decoded = ga.decodeOrthogonalBLF(chromosome);
+
+    assert(decoded.bays.size() == 2);
+    assert(std::abs(decoded.bays[0].x - 1e-3) < 1e-9);
+    assert(std::abs(decoded.bays[0].y - 1e-3) < 1e-9);
+
+    for (const auto& bay : decoded.bays) {
+        assert(bay.rotation == 0.0 ||
+               bay.rotation == 90.0 ||
+               bay.rotation == 180.0 ||
+               bay.rotation == 270.0);
+    }
+
+    const double expected = expectedQForAllPlaced();
+    const double actual = ga.evaluateQ(decoded);
+    assert(std::abs(actual - expected) < 1e-9);
+    std::cout << "test_decode_and_fitness passed!" << std::endl;
+}
+
 int main() {
     test_crossover();
     test_mutation();
+    test_decode_and_fitness();
     std::cout << "All GAOrtho tests passed!" << std::endl;
     return 0;
 }
