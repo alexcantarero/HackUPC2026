@@ -25,39 +25,18 @@ GeneticAlgorithm::GeneticAlgorithm(const StaticState& info, uint64_t seed)
 void GeneticAlgorithm::greedyFill(Solution& sol, std::atomic<bool>& stop_flag) const {
     if (info_.bayTypes.empty()) return;
 
+    Solution best_prefix = sol;
+    double best_prefix_score = evaluateTraining(sol.bays);
+
     SpatialGrid fill_grid(defaultCellSize());
     for (int i = 0; i < static_cast<int>(sol.bays.size()); ++i)
-        fill_grid.insertBay(i, CollisionChecker::createSolidOBB(sol.bays[i], &info_));
+        fill_grid.insertBay(i, CollisionChecker::createBoundingOBB(sol.bays[i], &info_));
 
     // Build anchors from existing bay corners
     std::vector<Point2D> anchors = generateSafeAnchors();
     for (const auto& bay : sol.bays) {
-        OBB solid = CollisionChecker::createSolidOBB(bay, &info_);
-        OBB gap   = CollisionChecker::createGapOBB(bay, &info_);
-        double min_x = solid.corners[0].x, max_x = min_x;
-        double min_y = solid.corners[0].y, max_y = min_y;
-        for (int i = 1; i < 4; ++i) {
-            min_x = std::min(min_x, solid.corners[i].x); max_x = std::max(max_x, solid.corners[i].x);
-            min_y = std::min(min_y, solid.corners[i].y); max_y = std::max(max_y, solid.corners[i].y);
-        }
-        for (int i = 0; i < 4; ++i) {
-            min_x = std::min(min_x, gap.corners[i].x); max_x = std::max(max_x, gap.corners[i].x);
-            min_y = std::min(min_y, gap.corners[i].y); max_y = std::max(max_y, gap.corners[i].y);
-        }
-        anchors.push_back({max_x, min_y});
-        anchors.push_back({min_x, max_y});
-        anchors.push_back(gap.center);
-        double dx = gap.center.x - solid.center.x;
-        double dy = gap.center.y - solid.center.y;
-        anchors.push_back({gap.center.x + dx, gap.center.y + dy});
+        addBayAnchors(bay, anchors);
     }
-
-    // Sort by bottom-left preference (standard BLF ordering)
-    std::sort(anchors.begin(), anchors.end(), [](const Point2D& a, const Point2D& b) {
-        auto q = [](double v) { return static_cast<long long>(std::round(v * 100.0)); };
-        if (q(a.y) != q(b.y)) return q(a.y) < q(b.y);
-        return q(a.x) < q(b.x);
-    });
 
     // Sort bay types by efficiency (same as greedy)
     std::vector<int> type_order;
@@ -71,18 +50,45 @@ void GeneticAlgorithm::greedyFill(Solution& sol, std::atomic<bool>& stop_flag) c
         return eff_a > eff_b;
     });
 
+    double cur_sum_r = 0.0, cur_sum_a = 0.0;
+    for (const auto& bay : sol.bays) {
+        const BayType* bt = CollisionChecker::getBayType(bay.typeId, &info_);
+        if (bt) {
+            cur_sum_r += bt->price / bt->nLoads;
+            cur_sum_a += bt->width * bt->depth;
+        }
+    }
+
     bool placed_any = true;
     while (placed_any && !stop_flag.load()) {
         placed_any = false;
+        
+        // Sort by bottom-left preference (standard BLF ordering)
+        std::sort(anchors.begin(), anchors.end(), [](const Point2D& a, const Point2D& b) {
+            auto q = [](double v) { return static_cast<long long>(std::round(v * 100.0)); };
+            if (q(a.y) != q(b.y)) return q(a.y) < q(b.y);
+            return q(a.x) < q(b.x);
+        });
+
         for (int ti : type_order) {
             const BayType& bt = info_.bayTypes[ti];
+
             for (const auto& anchor : anchors) {
                 for (double angle : {0.0, 90.0, 180.0, 270.0}) {
                     Bay candidate{bt.id, anchor.x, anchor.y, angle};
                     if (CollisionChecker::isValidPlacement(candidate, sol.bays, &info_, &fill_grid)) {
-                        fill_grid.insertBay(static_cast<int>(sol.bays.size()),
-                                            CollisionChecker::createSolidOBB(candidate, &info_));
+                        OBB bound = CollisionChecker::createBoundingOBB(candidate, &info_);
+                        fill_grid.insertBay(static_cast<int>(sol.bays.size()), bound);
                         sol.bays.push_back(candidate);
+                        
+                        double cur_score = evaluateTraining(sol.bays);
+                        if (cur_score < best_prefix_score) {
+                            best_prefix_score = cur_score;
+                            best_prefix = sol;
+                        }
+
+                        addBayAnchors(candidate, anchors);
+
                         placed_any = true;
                         goto next_type; // one bay per type per pass, like greedy
                     }
@@ -177,6 +183,12 @@ void GeneticAlgorithm::run(std::atomic<bool>& stop_flag) {
                 Solution sol = decodeChromosome(fresh, stop_flag);
                 greedyFill(sol, stop_flag);
                 calculateMetrics(sol);
+
+                for (size_t k = fresh.size(); k < sol.bays.size(); ++k) {
+                    const auto& bay = sol.bays[k];
+                    fresh.push_back({bay.typeId, bay.x, bay.y, bay.rotation});
+                }
+
                 population.push_back({std::move(fresh), std::move(sol)});
                 updateBest(population.back().solution);
             }
@@ -228,6 +240,11 @@ void GeneticAlgorithm::run(std::atomic<bool>& stop_flag) {
             Solution immigrant_solution = decodeChromosome(immigrant, stop_flag);
             greedyFill(immigrant_solution, stop_flag);
             calculateMetrics(immigrant_solution);
+
+            for (size_t k = immigrant.size(); k < immigrant_solution.bays.size(); ++k) {
+                const auto& bay = immigrant_solution.bays[k];
+                immigrant.push_back({bay.typeId, bay.x, bay.y, bay.rotation});
+            }
 
             const size_t padding = 20;
             if (immigrant_solution.bays.size() > 0 && immigrant.size() > immigrant_solution.bays.size() + padding)

@@ -39,7 +39,8 @@ test_collision: tests/test_collision.cpp \
 	./bin/test_collision
 
 test_score: tests/test_score.cpp \
-            $(SRCDIR)/core/score.cpp
+            $(SRCDIR)/core/score.cpp \
+            $(SRCDIR)/core/collision.cpp
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) -o bin/test_score $^
 	./bin/test_score

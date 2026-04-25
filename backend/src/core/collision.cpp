@@ -95,6 +95,31 @@ OBB CollisionChecker::createGapOBB(const Bay& bay, const StaticState* staticInfo
     return buildOBBFromLocalCorners(local, bay.x, bay.y, cosA, sinA);
 }
 
+OBB CollisionChecker::createBoundingOBB(const Bay& bay, const StaticState* staticInfo) {
+    OBB solid = createSolidOBB(bay, staticInfo);
+    OBB gap = createGapOBB(bay, staticInfo);
+    double min_x = solid.corners[0].x, max_x = min_x;
+    double min_y = solid.corners[0].y, max_y = min_y;
+    for(int i = 0; i < 4; ++i) {
+        if (solid.corners[i].x < min_x) min_x = solid.corners[i].x;
+        if (solid.corners[i].x > max_x) max_x = solid.corners[i].x;
+        if (solid.corners[i].y < min_y) min_y = solid.corners[i].y;
+        if (solid.corners[i].y > max_y) max_y = solid.corners[i].y;
+        
+        if (gap.corners[i].x < min_x) min_x = gap.corners[i].x;
+        if (gap.corners[i].x > max_x) max_x = gap.corners[i].x;
+        if (gap.corners[i].y < min_y) min_y = gap.corners[i].y;
+        if (gap.corners[i].y > max_y) max_y = gap.corners[i].y;
+    }
+    OBB bound;
+    bound.corners[0] = {min_x, min_y};
+    bound.corners[1] = {max_x, min_y};
+    bound.corners[2] = {max_x, max_y};
+    bound.corners[3] = {min_x, max_y};
+    bound.center = {(min_x + max_x) / 2.0, (min_y + max_y) / 2.0};
+    return bound;
+}
+
 OBB CollisionChecker::createObstacleOBB(const Obstacle& obs) {
     OBB obb;
     obb.corners[0] = {obs.x,             obs.y};
@@ -145,19 +170,10 @@ bool CollisionChecker::isValidPlacement(
     if (grid) {
         // thread_local so capacity is preserved across millions of calls (zero heap allocs).
         thread_local std::vector<int> candidates;
-        thread_local std::vector<int> gap_cands;
         candidates.clear();
-        gap_cands.clear();
 
-        // getPotentialBayCollisions clears the vector before filling it, so we must
-        // query solid and gap into separate vectors then merge — otherwise the second
-        // call would erase the first call's results and solid-only overlaps go unchecked.
-        grid->getPotentialBayCollisions(solidOBB, candidates);
-        grid->getPotentialBayCollisions(gapOBB,   gap_cands);
-        for (int idx : gap_cands) {
-            if (std::find(candidates.begin(), candidates.end(), idx) == candidates.end())
-                candidates.push_back(idx);
-        }
+        const OBB boundOBB = createBoundingOBB(candidate, staticInfo);
+        grid->getPotentialBayCollisions(boundOBB, candidates);
 
         for (int idx : candidates) {
             const OBB otherSolid = createSolidOBB(placed[idx], staticInfo);

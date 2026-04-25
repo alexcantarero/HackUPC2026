@@ -54,7 +54,7 @@ public:
 void testSolutionDefaults() {
     SECTION("Solution - Defaults");
     Solution s;
-    TEST("Score is max initially", s.score == std::numeric_limits<double>::max());
+    TEST("Score is max initially", s.training_score == std::numeric_limits<double>::max());
     TEST("producedBy is empty initially", s.producedBy == "");
     TEST("Bays list is empty initially", s.bays.empty());
 }
@@ -65,23 +65,23 @@ void testAlgorithmUpdateBest() {
     TestAlgorithm algo(state, 42);
 
     Solution initialBest = algo.best();
-    TEST("Initial best score is max", initialBest.score == std::numeric_limits<double>::max());
+    TEST("Initial best training_score is max", initialBest.training_score == std::numeric_limits<double>::max());
 
     Solution candidate1;
-    candidate1.score = 100.0;
+    candidate1.training_score = 100.0;
     candidate1.bays.push_back({0, 1000, 1000, 0});
     
     algo.publicUpdateBest(candidate1);
     
-    TEST("best is updated when score is lower", algo.best().score == 100.0);
+    TEST("best is updated when training_score is lower", algo.best().training_score == 100.0);
     TEST("producedBy is set to algorithm name", algo.best().producedBy == "TestAlgo");
     TEST("best has correct bays", algo.best().bays.size() == 1);
 
     Solution candidate2;
-    candidate2.score = 150.0; // Worse score
+    candidate2.training_score = 150.0; // Worse training_score
     algo.publicUpdateBest(candidate2);
     
-    TEST("best is NOT updated when score is higher", algo.best().score == 100.0);
+    TEST("best is NOT updated when training_score is higher", algo.best().training_score == 100.0);
     TEST("producedBy remains the same", algo.best().producedBy == "TestAlgo");
 }
 

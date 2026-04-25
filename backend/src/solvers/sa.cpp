@@ -199,7 +199,7 @@ void SimulatedAnnealing::initFromBays(const std::vector<Bay>& bays) {
     current_bays_ = bays;
     current_grid_.clearAll();
     for (int i = 0; i < static_cast<int>(current_bays_.size()); ++i)
-        current_grid_.insertBay(i, CollisionChecker::createSolidOBB(current_bays_[i], &info_));
+        current_grid_.insertBay(i, CollisionChecker::createBoundingOBB(current_bays_[i], &info_));
 
     sum_ratio_ = 0.0;
     sum_area_  = 0.0;
@@ -213,7 +213,7 @@ void SimulatedAnnealing::initFromBays(const std::vector<Bay>& bays) {
 void SimulatedAnnealing::rebuildEventPoints() {
     event_points_.clear();
     for (const auto& bay : current_bays_) {
-        OBB solid = CollisionChecker::createSolidOBB(bay, &info_);
+        OBB solid = CollisionChecker::createBoundingOBB(bay, &info_);
         for (int i = 0; i < 4; ++i)
             event_points_.push_back(solid.corners[i]);
     }
@@ -234,7 +234,7 @@ Bay SimulatedAnnealing::removeBayAt(int idx) {
     current_bays_.erase(current_bays_.begin() + idx);
     current_grid_.clearBays();
     for (int i = 0; i < static_cast<int>(current_bays_.size()); ++i)
-        current_grid_.insertBay(i, CollisionChecker::createSolidOBB(current_bays_[i], &info_));
+        current_grid_.insertBay(i, CollisionChecker::createBoundingOBB(current_bays_[i], &info_));
     return removed;
 }
 */
@@ -244,7 +244,7 @@ Bay SimulatedAnnealing::removeBayAt(int idx) {
     int last_idx = static_cast<int>(current_bays_.size()) - 1;
 
     // 1. Remove the target bay from the spatial grid O(1)
-    OBB removed_obb = CollisionChecker::createSolidOBB(removed, &info_);
+    OBB removed_obb = CollisionChecker::createBoundingOBB(removed, &info_);
     current_grid_.removeBay(idx, removed_obb);
 
     // 2. If the bay we are removing is NOT already the last element,
@@ -252,7 +252,7 @@ Bay SimulatedAnnealing::removeBayAt(int idx) {
     if (idx != last_idx) {
         // Get the last bay
         Bay last_bay = current_bays_[last_idx];
-        OBB last_obb = CollisionChecker::createSolidOBB(last_bay, &info_);
+        OBB last_obb = CollisionChecker::createBoundingOBB(last_bay, &info_);
 
         // Remove the last bay from the grid at its OLD index
         current_grid_.removeBay(last_idx, last_obb);
@@ -272,7 +272,7 @@ Bay SimulatedAnnealing::removeBayAt(int idx) {
 
 void SimulatedAnnealing::appendBay(const Bay& bay) {
     current_grid_.insertBay(static_cast<int>(current_bays_.size()),
-                            CollisionChecker::createSolidOBB(bay, &info_));
+                            CollisionChecker::createBoundingOBB(bay, &info_));
     current_bays_.push_back(bay);
 }
 

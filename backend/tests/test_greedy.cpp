@@ -29,7 +29,7 @@ void testGreedyPlacesBays() {
 
     const Solution& sol = solver.best();
     TEST("places at least 1 bay",  sol.bays.size() >= 1);
-    TEST("score is not max_double", sol.score < std::numeric_limits<double>::max());
+    TEST("score is not max_double", sol.official_score < std::numeric_limits<double>::max());
     TEST("producedBy is 'greedy'",  sol.producedBy == "greedy");
 }
 
@@ -49,7 +49,7 @@ void testGreedyBaysAreValid() {
 }
 
 void testGreedyScoreMatchesCompute() {
-    std::cout << "\nGreedy score matches computeScore\n";
+    std::cout << "\nGreedy score matches computeOfficialScore\n";
     StaticState s = makeState();
     GreedySolver solver(s, 42);
     std::atomic<bool> stop{false};
@@ -57,8 +57,8 @@ void testGreedyScoreMatchesCompute() {
 
     const Solution& sol = solver.best();
     double wh = warehouseArea(s.warehousePolygon);
-    double expected = computeScore(sol.bays, s, wh);
-    TEST("score matches computeScore", std::fabs(sol.score - expected) < 1e-6);
+    double expected = computeOfficialScore(sol.bays, s, wh);
+    TEST("score matches computeOfficialScore", std::fabs(sol.official_score - expected) < 1e-6);
 }
 
 void testGreedyMultipleTypes() {
@@ -72,7 +72,7 @@ void testGreedyMultipleTypes() {
     const Solution& sol = solver.best();
     TEST("places at least 1 bay with two types", sol.bays.size() >= 1);
     TEST("score is not max_double with two types",
-         sol.score < std::numeric_limits<double>::max());
+         sol.official_score < std::numeric_limits<double>::max());
 }
 
 int main() {

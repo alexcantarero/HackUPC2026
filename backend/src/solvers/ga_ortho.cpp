@@ -30,6 +30,9 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
         return decoded;
     }
 
+    Solution best_prefix = decoded;
+    double best_prefix_score = std::numeric_limits<double>::max();
+
     std::vector<Point2D> anchors = generateSafeAnchors();
     SpatialGrid decode_grid(defaultCellSize());
 
@@ -86,34 +89,24 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome, std::atomic<
         if (!placed) continue;
 
         decoded.bays.push_back(best_candidate);
-        OBB solid = CollisionChecker::createSolidOBB(best_candidate, &info_);
-        decode_grid.insertBay(static_cast<int>(decoded.bays.size() - 1), solid);
+        OBB bound = CollisionChecker::createBoundingOBB(best_candidate, &info_);
+        decode_grid.insertBay(static_cast<int>(decoded.bays.size() - 1), bound);
 
-        OBB gap = CollisionChecker::createGapOBB(best_candidate, &info_);
-        double min_x = solid.corners[0].x, max_x = min_x;
-        double min_y = solid.corners[0].y, max_y = min_y;
-        expandBounds(gap,   min_x, max_x, min_y, max_y);
-        expandBounds(solid, min_x, max_x, min_y, max_y);
+        double cur_score = evaluateTraining(decoded.bays);
+        if (cur_score < best_prefix_score) {
+            best_prefix_score = cur_score;
+            best_prefix = decoded;
+        }
 
-        // Push newest anchors to the back (the tail we keep when trimming).
-        anchors.push_back({max_x, min_y});
-        anchors.push_back({min_x, max_y});
-        anchors.push_back(gap.center);
+        addBayAnchors(best_candidate, anchors);
 
-        // Opposite-gap anchor: enables perfect back-to-back aisle snaps.
-        double dx = gap.center.x - solid.center.x;
-        double dy = gap.center.y - solid.center.y;
-        anchors.push_back({gap.center.x + dx, gap.center.y + dy});
-
-        // Trim by removing from the front: after distance-sorting, the front
-        // holds the anchors furthest from the last placed bay — least useful.
-        // The freshly pushed tail entries survive.
+        // Trim by removing from the front
         if (anchors.size() > kMaxAnchors) {
             anchors.erase(anchors.begin(),
                           anchors.begin() + (anchors.size() - kMaxAnchors));
         }
     }
 
-    calculateMetrics(decoded);
-    return decoded;
+    calculateMetrics(best_prefix);
+    return best_prefix;
 }
