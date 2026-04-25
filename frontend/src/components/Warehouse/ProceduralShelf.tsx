@@ -1,5 +1,3 @@
-import * as THREE from "three";
-
 interface ProceduralShelfProps {
   width: number;
   height: number;
