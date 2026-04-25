@@ -45,6 +45,7 @@ type MockComparisonResult = {
   title: string;
   status: string;
   bestScore: string;
+  rawScore?: number;
   runtimeMs: string;
   outputFile: string;
   note: string;
@@ -408,21 +409,26 @@ export default function App() {
           return;
         }
 
-        if (payload.algorithmResults) {
+        if (payload.algorithmResults && payload.algorithmResults.length > 0) {
+          console.log(`[App] Processing ${payload.algorithmResults.length} results.`);
           const results = payload.algorithmResults.map((ar) => ({
-            algorithm: ar.algorithm_name as any,
+            algorithm: ar.algorithm_name,
             title: ar.algorithm_name.replace("_", " ").toUpperCase(),
             status: "success",
             bestScore: ar.score.toLocaleString(),
+            // Store raw score for reliable sorting
+            rawScore: ar.score,
             runtimeMs: `${Math.round(ar.time_took_to_find_best_sol * 1000)} ms`,
             outputFile: ar.outputFile || "N/A",
             note: `Placed ${ar.number_of_bays} bays with training score ${ar.training_score.toFixed(2)}`,
           }));
           
-          // Sort so the lowest score is at the top
-          results.sort((a, b) => parseFloat(a.bestScore.replace(/,/g, '')) - parseFloat(b.bestScore.replace(/,/g, '')));
+          // Sort numerically using the new rawScore field
+          results.sort((a, b) => (a.rawScore || 0) - (b.rawScore || 0));
           
           setComparisonResults(results);
+        } else {
+          console.warn("[App] No algorithm results found in API response.");
         }
 
         setSolverResult(payload);

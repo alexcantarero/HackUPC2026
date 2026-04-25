@@ -181,16 +181,17 @@ app.post(
         durationMs: Date.now() - startedAt,
       };
 
-      // Discovery logic: Try regex first, fallback to newest folder in data/output
+      // Discovery logic: Try regex first (robust version), fallback to newest folder in data/output
       let absoluteFolderPath = "";
-      const folderMatch = runResult.stdout.match(/Output folder:\s*(.+)/);
+      const stdoutClean = runResult.stdout.replace(/\u001b\[[0-9;]*m/g, ""); // Strip ANSI colors
+      const folderMatch = stdoutClean.match(/Output folder:\s*([^\s\n\r]+)/i);
       
       if (folderMatch && folderMatch[1]) {
         const rawFolderPath = folderMatch[1].trim();
         absoluteFolderPath = path.resolve(backendDir, rawFolderPath);
         console.log(`[API] Found output folder via regex: ${absoluteFolderPath}`);
       } else {
-        console.log("[API] No output folder found in stdout. Checking data/output for newest folder...");
+        console.log("[API] No output folder found in clean stdout. Full stdout length:", runResult.stdout.length);
         try {
           const outputDir = path.join(workspaceRoot, "data", "output");
           const entries = await fs.readdir(outputDir, { withFileTypes: true });
@@ -199,14 +200,20 @@ app.post(
             .map(e => ({ name: e.name, path: path.join(outputDir, e.name) }));
           
           if (folders.length > 0) {
-            // Sort by creation/modification time
             const foldersWithTime = await Promise.all(folders.map(async f => {
               const stat = await fs.stat(f.path);
               return { ...f, mtime: stat.mtimeMs };
             }));
             foldersWithTime.sort((a, b) => b.mtime - a.mtime);
-            absoluteFolderPath = foldersWithTime[0].path;
-            console.log(`[API] Falling back to newest folder: ${absoluteFolderPath}`);
+            
+            // Only fallback if the newest folder was created very recently (within last 30s)
+            const newest = foldersWithTime[0];
+            if (Date.now() - newest.mtime < 30000) {
+              absoluteFolderPath = newest.path;
+              console.log(`[API] Falling back to recent folder: ${absoluteFolderPath}`);
+            } else {
+              console.warn(`[API] Newest folder ${newest.name} is too old (${Math.round((Date.now() - newest.mtime)/1000)}s).`);
+            }
           }
         } catch (err) {
           console.error("[API] Fallback discovery failed:", err);
