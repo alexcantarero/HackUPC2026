@@ -83,6 +83,14 @@ export function useSolver() {
       setResult(payload);
       if (payload.outputCsv) {
         setActiveLayoutCsv(payload.outputCsv);
+        
+        // Find the best run to highlight it as "Viewing Layout"
+        if (payload.algorithmResults && payload.algorithmResults.length > 0) {
+          const bestRun = payload.algorithmResults.reduce((prev, current) => 
+            (prev.score < current.score) ? prev : current
+          );
+          setSelectedAlgoName(bestRun.algorithm_name);
+        }
       }
     } catch {
       setError("Unable to reach solver API.");
