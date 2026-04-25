@@ -6,8 +6,9 @@ import * as THREE from "three";
 import Shelf from "./models/shelf.jsx";
 import FadingDollhouseElement from "./components/FadingDollhouseElement";
 import { buildSceneGeometry, FLOOR_Y } from "./scene/buildSceneGeometry";
+import Topbar from "./components/Topbar/Topbar";
 
-const CASE_NUMBER = 0;
+const CASE_NUMBER = 3;
 
 const warehouseFiles = import.meta.glob(
   "../../data/input/Case*/warehouse.csv",
@@ -62,68 +63,71 @@ export default function App() {
   }, []);
 
   return (
-    <div className="canvas-container">
-      <Canvas
-        className="canvas"
-        camera={{ position: [0, 5, 100], rotation: [0, 45, 0], fov: 50 }}
-      >
-        <color attach="background" args={["#878787"]} />
-        <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
-        <ambientLight intensity={3} />
-
-        <mesh
-          position={[0, FLOOR_Y, 0]}
-          ref={meshRef}
-          geometry={sceneGeometry.floor}
+    <div className="app-shell">
+      <Topbar />
+      <div className="canvas-container">
+        <Canvas
+          className="canvas"
+          camera={{ position: [0, 5, 100], rotation: [0, 45, 0], fov: 50 }}
         >
-          <meshStandardMaterial color="#a3a3a3" />
-        </mesh>
+          <color attach="background" args={["#878787"]} />
+          <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
+          <ambientLight intensity={3} />
 
-        {sceneGeometry.ceilingParts.map((part, index) => (
-          <FadingDollhouseElement
-            key={`ceiling-${index}`}
-            geometry={part.geometry}
-            positionY={FLOOR_Y + part.y}
-            thresholdY={part.y}
-          />
-        ))}
-
-        {sceneGeometry.ceilingWalls.map((cw, index) => (
-          <FadingDollhouseElement
-            key={`ceiling-wall-${index}`}
-            geometry={cw.geometry}
-            positionY={FLOOR_Y}
-            thresholdY={cw.topY}
-          />
-        ))}
-
-        {sceneGeometry.walls.map((wall, index) => (
           <mesh
-            key={`wall-${index}`}
             position={[0, FLOOR_Y, 0]}
-            geometry={wall}
+            ref={meshRef}
+            geometry={sceneGeometry.floor}
           >
-            <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+            <meshStandardMaterial color="#a3a3a3" />
           </mesh>
-        ))}
 
-        {sceneGeometry.obstacles.map((obstacle, index) => (
-          <mesh
-            key={`obstacle-${index}`}
-            position={[
-              obstacle.position[0],
-              FLOOR_Y + obstacle.position[1],
-              obstacle.position[2],
-            ]}
-            geometry={obstacle.geometry}
-          >
-            <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
-          </mesh>
-        ))}
+          {sceneGeometry.ceilingParts.map((part, index) => (
+            <FadingDollhouseElement
+              key={`ceiling-${index}`}
+              geometry={part.geometry}
+              positionY={FLOOR_Y + part.y}
+              thresholdY={part.y}
+            />
+          ))}
 
-        <Shelf position={[0, FLOOR_Y, 0]} scale={0.05} />
-        <CameraControls makeDefault />
-      </Canvas>
+          {sceneGeometry.ceilingWalls.map((cw, index) => (
+            <FadingDollhouseElement
+              key={`ceiling-wall-${index}`}
+              geometry={cw.geometry}
+              positionY={FLOOR_Y}
+              thresholdY={cw.topY}
+            />
+          ))}
+
+          {sceneGeometry.walls.map((wall, index) => (
+            <mesh
+              key={`wall-${index}`}
+              position={[0, FLOOR_Y, 0]}
+              geometry={wall}
+            >
+              <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+            </mesh>
+          ))}
+
+          {sceneGeometry.obstacles.map((obstacle, index) => (
+            <mesh
+              key={`obstacle-${index}`}
+              position={[
+                obstacle.position[0],
+                FLOOR_Y + obstacle.position[1],
+                obstacle.position[2],
+              ]}
+              geometry={obstacle.geometry}
+            >
+              <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
+            </mesh>
+          ))}
+
+          <Shelf position={[0, FLOOR_Y, 0]} scale={0.05} />
+          <CameraControls makeDefault />
+        </Canvas>
+      </div>
     </div>
   );
 }
