@@ -4,8 +4,8 @@ import { CameraControls } from "@react-three/drei";
 import { useRef, useEffect, useMemo } from "react";
 import * as THREE from "three";
 import Shelf from "./models/shelf.jsx";
-import warehouseOutlineCsv from "../../data/input/Case0/warehouse.csv?raw";
-import ceilingCsv from "../../data/input/Case0/ceiling.csv?raw";
+import warehouseOutlineCsv from "../../data/input/Case3/warehouse.csv?raw";
+import ceilingCsv from "../../data/input/Case3/ceiling.csv?raw";
 
 const WORLD_SCALE = 0.004;
 const FLOOR_THICKNESS = 0.25;
@@ -202,8 +202,8 @@ export default function App() {
         : ([[0, 3000]] as Array<[number, number]>);
 
     const maxRawX = Math.max(...points.map(([x]) => x));
-    const minRawX = Math.min(...points.map(([x]) => x)); // Add this line
-    const ceilingParts: Array<{ geometry: THREE.ExtrudeGeometry; y: number }> =
+    const minRawX = Math.min(...points.map(([x]) => x));
+    const ceilingParts: Array<{ geometry: THREE.BufferGeometry; y: number }> =
       [];
     const walls: THREE.BufferGeometry[] = [];
     const perimeterWalls = new Map<
@@ -229,13 +229,13 @@ export default function App() {
       const clippedPolygon = clipBetweenX(centeredPoints, startX, endX);
       if (clippedPolygon.length < 3) continue;
 
-      const ceilingPartGeometry = new THREE.ExtrudeGeometry(
+      const ceilingPartGeometry = new THREE.ShapeGeometry(
         new THREE.Shape(clippedPolygon),
-        {
-          depth: CEILING_THICKNESS,
-          bevelEnabled: false,
-        },
       );
+
+      // Rotate it down so it lays flat as a roof!
+      ceilingPartGeometry.rotateX(-Math.PI / 2);
+      ceilingPartGeometry.translate(0, -CEILING_THICKNESS / 2, 0);
 
       if (i < ceilingProfile.length - 1) {
         const nextRawHeight = ceilingProfile[i + 1][1];
@@ -259,15 +259,12 @@ export default function App() {
               const bottomY = Math.min(currentHeightY, nextHeightY);
               const topY = Math.max(currentHeightY, nextHeightY);
 
-              // Push the connecting vertical plane to the walls array
-              walls.push(buildWallGeometry(start, end, bottomY, topY));
+              // SWAP `start` and `end` here to flip the face normal!
+              walls.push(buildWallGeometry(end, start, bottomY, topY));
             }
           }
         }
       }
-
-      ceilingPartGeometry.rotateX(-Math.PI / 2);
-      ceilingPartGeometry.translate(0, -CEILING_THICKNESS / 2, 0);
 
       ceilingParts.push({
         geometry: ceilingPartGeometry,
@@ -336,6 +333,7 @@ export default function App() {
         <color attach="background" args={["#bbbbbb"]} />
         <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
         <ambientLight intensity={3} />
+
         <mesh
           position={[0, FLOOR_Y, 0]}
           ref={meshRef}
@@ -350,7 +348,8 @@ export default function App() {
             position={[0, FLOOR_Y + part.y, 0]}
             geometry={part.geometry}
           >
-            <meshStandardMaterial color="#d6d6d6" side={THREE.FrontSide} />
+            {/* Renders the ceiling from below, but hides it from above! */}
+            <meshStandardMaterial color="#d6d6d6" side={THREE.BackSide} />
           </mesh>
         ))}
 
@@ -360,7 +359,8 @@ export default function App() {
             position={[0, FLOOR_Y, 0]}
             geometry={wall}
           >
-            <meshStandardMaterial color="#c4c4c4" side={THREE.DoubleSide} />
+            {/* Same effect for the walls */}
+            <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
           </mesh>
         ))}
 
