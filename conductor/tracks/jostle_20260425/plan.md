@@ -8,10 +8,10 @@
 - [x] Task: Conductor - User Manual Verification 'Algorithm Core Setup' (Protocol in workflow.md)
 
 ## Phase 2: Local Search Operators
-- [ ] Task: Implement the `translateBay(State& state, int bayIndex, double deltaX, double deltaY)` mutation operator.
-- [ ] Task: Implement the `rotateBay(State& state, int bayIndex, double deltaAngle)` mutation operator.
-- [ ] Task: Implement the `swapBays(State& state, int bayIndex1, int bayIndex2)` or `changeBayType` mutation operator.
-- [ ] Task: Integrate `CollisionChecker` and `SpatialGrid` to validate the mutated state after applying any operator.
+- [x] Task: Implement the `translateBay(State& state, int bayIndex, double deltaX, double deltaY)` mutation operator. 45d5eb0
+- [x] Task: Implement the `rotateBay(State& state, int bayIndex, double deltaAngle)` mutation operator. 45d5eb0
+- [x] Task: Implement the `swapBays(State& state, int bayIndex1, int bayIndex2)` or `changeBayType` mutation operator. 45d5eb0
+- [x] Task: Integrate `CollisionChecker` and `SpatialGrid` to validate the mutated state after applying any operator. 45d5eb0
 - [ ] Task: Conductor - User Manual Verification 'Local Search Operators' (Protocol in workflow.md)
 
 ## Phase 3: Algorithm Logic and Optimization Loop
