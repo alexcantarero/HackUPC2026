@@ -24,7 +24,7 @@ GreedySolver::GreedySolver(const StaticState& info, uint64_t seed)
 }
 
 void GreedySolver::run(std::atomic<bool>& stop_flag) {
-    (void)stop_flag; // single-pass — ignores stop flag
+    (void)stop_flag;
     fillPass();
     updateBest(best_);
 }

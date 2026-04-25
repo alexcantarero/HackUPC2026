@@ -1,5 +1,5 @@
 CXX      = g++
-CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -pthread
+CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -pthread -MMD -MP
 TARGET   = bin/solver
 SRCDIR   = src
 
@@ -15,6 +15,9 @@ SRCS = $(SRCDIR)/main.cpp \
         $(SRCDIR)/solvers/sa.cpp
 
 OBJS = $(SRCS:.cpp=.o)
+DEPS = $(OBJS:.o=.d)
+
+-include $(DEPS)
 
 all: $(TARGET)
 
@@ -63,7 +66,7 @@ test_sa: tests/test_sa.cpp \
 test: test_collision test_score test_greedy test_sa
 
 clean:
-	rm -f $(OBJS) \
+	rm -f $(OBJS) $(DEPS) \
 	      bin/solver bin/test_collision bin/test_score bin/test_greedy bin/test_sa
 
 .PHONY: all run test test_collision test_score test_greedy test_sa clean

@@ -30,7 +30,9 @@ dist-ssr
 # C++ build artifacts
 backend/bin/
 backend/**/*.o
+backend/**/*.d
 *.o
+*.d
 *.out
 
 # Compiler / vite cache

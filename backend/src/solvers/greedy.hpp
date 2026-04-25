@@ -21,6 +21,7 @@ public:
 
     void        run(std::atomic<bool>& stop_flag) override;
     std::string name() const override { return "greedy"; }
+    bool        isAnytime() const override { return false; }
 
     /**
      * @brief Run one BLF fill pass into best_.bays.

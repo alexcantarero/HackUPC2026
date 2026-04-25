@@ -119,11 +119,19 @@ int main(int argc, char* argv[]) {
         Algorithm* p = algo.get();
         threads.emplace_back([p, &stop_flag] { p->run(stop_flag); });
     }
-
-    // 4. Wait for time limit, then signal stop
-    std::this_thread::sleep_for(
-        std::chrono::duration<double>(TIME_LIMIT_S));
+    std::cout << "Started " << threads.size() << " threads.\n";
+    // 4. Wait for time limit (only for anytime algorithms), then signal stop
+    bool anyAnytime = std::any_of(algos.begin(), algos.end(),
+        [](const auto& a) { return a->isAnytime(); });
+    std::cout << "Started " << threads.size() << " threads.2\n";
+    if (anyAnytime){
+        std::cout<< "About to start anytime algorithms. Will run for " << TIME_LIMIT_S << " seconds.\n";
+        std::this_thread::sleep_for(std::chrono::duration<double>(TIME_LIMIT_S));
+    }
     stop_flag = true;
+
+    std::cout << "Started " << threads.size() << " threads.3\n";
+
 
     for (auto& t : threads) t.join();
 

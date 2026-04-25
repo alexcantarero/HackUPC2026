@@ -35,15 +35,15 @@ void testComputeScore() {
     TEST("empty layout score = 0", near(computeScore({}, s, wh), 0.0));
 
     // One bay: ratio = 2000/4 = 500, area = 800*1200 = 960000
-    // Q = 500^2 - 960000/1e8 = 250000 - 0.0096
+    // Q = pow(500, 2 - 960000/1e8)
     Bay b{0, 0.0, 0.0, 0.0};
-    double expected = 500.0 * 500.0 - 960000.0 / 1e8;
+    double expected = std::pow(500.0, 2.0 - 960000.0 / wh);
     TEST("one bay score", near(computeScore({b}, s, wh), expected, 1e-4));
 
     // Two identical bays: ratio_sum=1000, area_sum=1920000
-    // Q = 1000^2 - 1920000/1e8
+    // Q = pow(1000, 2 - 1920000/1e8)
     Bay b2{0, 2000.0, 0.0, 0.0};
-    double expected2 = 1000.0 * 1000.0 - 1920000.0 / 1e8;
+    double expected2 = std::pow(1000.0, 2.0 - 1920000.0 / wh);
     TEST("two bay score", near(computeScore({b, b2}, s, wh), expected2, 1e-4));
 }
 

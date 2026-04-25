@@ -15,7 +15,8 @@ double warehouseArea(const std::vector<Point2D>& polygon) {
 double computeScore(const std::vector<Bay>& bays,
                     const StaticState& info,
                     double wh_area) {
-    if (bays.empty() || wh_area <= 0.0) return std::numeric_limits<double>::max();
+    if (wh_area <= 0.0) return std::numeric_limits<double>::max();
+    if (bays.empty()) return 0.0;
 
     double sum_ratio = 0.0;
     double sum_area  = 0.0;

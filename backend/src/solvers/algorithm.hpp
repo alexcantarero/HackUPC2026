@@ -26,6 +26,7 @@ public:
 
     virtual void run(std::atomic<bool>& stop_flag) = 0;
     virtual std::string name() const = 0;
+    virtual bool isAnytime() const { return true; }
     const Solution& best() const { return best_; }
 
 protected:
