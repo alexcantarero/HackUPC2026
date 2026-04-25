@@ -12,54 +12,35 @@ import {
 } from "./scene/buildSceneGeometry";
 import Topbar from "./components/Topbar/Topbar";
 import Warehouse from "./components/Warehouse/Warehouse";
-
 import SolverLoader from "./components/Loader/SolverLoader";
 
-const DEFAULT_CASE_NUMBER = 3;
+// --- WELCOME WAREHOUSE DATA ---
+const WELCOME_WAREHOUSE = `0,0
+15000,0
+15000,15000
+0,15000`;
 
-// --- FILE LOADERS ---
-const warehouseFiles = import.meta.glob(
-  "../../data/input/Case*/warehouse.csv",
-  { query: "?raw", import: "default", eager: true },
-) as Record<string, string>;
+const WELCOME_OBSTACLES = `7000,7000,1000,1000`;
 
-const ceilingFiles = import.meta.glob("../../data/input/Case*/ceiling.csv", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
+const WELCOME_CEILING = `0,5000
+15000,5000`;
 
-const obstacleFiles = import.meta.glob("../../data/input/Case*/obstacles.csv", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
+const WELCOME_BAYS = `0, 1500, 1000, 3000, 500, 8, 2000
+1, 2500, 1200, 4500, 800, 12, 3500`;
 
-const bayFiles = import.meta.glob("../../data/input/Case*/types_of_bays.csv", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
-
-const layoutFiles = import.meta.glob(
-  "../../data/input/Case*/expected_output.csv",
-  {
-    query: "?raw",
-    import: "default",
-    eager: true,
-  },
-) as Record<string, string>;
+const WELCOME_LAYOUT = `0, 2000, 2000, 0
+0, 2000, 4500, 0
+0, 2000, 7000, 0
+0, 2000, 9500, 0
+0, 2000, 12000, 0
+1, 10000, 2000, 180
+1, 10000, 5500, 180
+1, 10000, 9000, 180
+1, 10000, 12500, 180
+0, 6000, 2000, 90
+0, 8500, 2000, 90`;
 
 // --- PARSING FUNCTIONS ---
-function getCaseCsv(
-  files: Record<string, string>,
-  caseNumber: number,
-  kind: string,
-) {
-  const filePath = `../../data/input/Case${caseNumber}/${kind}.csv`;
-  return files[filePath] ?? "";
-}
-
 function parseBaysCsv(csvString: string) {
   if (!csvString) return {};
   const lines = csvString.trim().split("\n");
@@ -157,7 +138,6 @@ export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const cameraControlsRef = useRef<CameraControls>(null);
-  const [caseNumber, setCaseNumber] = useState(DEFAULT_CASE_NUMBER);
   const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
   const [, setIsTopView] = useState(false);
   const [showGaps, setShowGaps] = useState(false);
@@ -173,11 +153,6 @@ export default function App() {
   >([]);
   const [activeLayoutCsv, setActiveLayoutCsv] = useState<string | null>(null);
   const [selectedAlgoName, setSelectedAlgoName] = useState<string | null>(null);
-
-  useEffect(() => {
-    setActiveLayoutCsv(null);
-    setSelectedAlgoName(null);
-  }, [caseNumber]);
 
   const toggleGaps = useCallback(() => {
     setShowGaps((prev) => !prev);
@@ -245,9 +220,6 @@ export default function App() {
           message?: string;
         };
         console.log("[App] API Response:", payload);
-        if (payload.debug) {
-          console.log("[App] Server Debug Info:", payload.debug.join("\n"));
-        }
 
         if (!response.ok || !payload.ok) {
           setSolverError(payload.message ?? "Solver request failed");
@@ -256,13 +228,11 @@ export default function App() {
         }
 
         if (payload.algorithmResults && payload.algorithmResults.length > 0) {
-          console.log(`[App] Processing ${payload.algorithmResults.length} results.`);
           const results = payload.algorithmResults.map((ar) => ({
             algorithm: ar.algorithm_name,
             title: ar.algorithm_name.replace("_", " ").toUpperCase(),
             status: "success",
             bestScore: ar.score.toLocaleString(),
-            // Store raw score for reliable sorting
             rawScore: ar.score,
             runtimeMs: `${Math.round(ar.time_took_to_find_best_sol * 1000)} ms`,
             outputFile: ar.outputFile || "N/A",
@@ -270,12 +240,8 @@ export default function App() {
             outputCsv: ar.outputCsv,
           }));
           
-          // Sort numerically using the new rawScore field
           results.sort((a, b) => (a.rawScore || 0) - (b.rawScore || 0));
-          
           setComparisonResults(results);
-        } else {
-          console.warn("[App] No algorithm results found in API response.");
         }
 
         setSolverResult(payload);
@@ -283,9 +249,7 @@ export default function App() {
           setActiveLayoutCsv(payload.outputCsv);
         }
       } catch {
-        setSolverError(
-          "Unable to reach solver API. Start it with: npm run api",
-        );
+        setSolverError("Unable to reach solver API.");
       } finally {
         setIsSubmittingSolver(false);
       }
@@ -328,24 +292,13 @@ export default function App() {
 
   const activeCsvInputs = useMemo(() => {
     return {
-      warehouse:
-        solverResult?.csvInputs?.warehouse ??
-        getCaseCsv(warehouseFiles, caseNumber, "warehouse"),
-      ceiling:
-        solverResult?.csvInputs?.ceiling ??
-        getCaseCsv(ceilingFiles, caseNumber, "ceiling"),
-      obstacles:
-        solverResult?.csvInputs?.obstacles ??
-        getCaseCsv(obstacleFiles, caseNumber, "obstacles"),
-      types_of_bays:
-        solverResult?.csvInputs?.types_of_bays ??
-        getCaseCsv(bayFiles, caseNumber, "types_of_bays"),
-      expected_output:
-        activeLayoutCsv ??
-        solverResult?.outputCsv ??
-        getCaseCsv(layoutFiles, caseNumber, "expected_output"),
+      warehouse: solverResult?.csvInputs?.warehouse ?? WELCOME_WAREHOUSE,
+      ceiling: solverResult?.csvInputs?.ceiling ?? WELCOME_CEILING,
+      obstacles: solverResult?.csvInputs?.obstacles ?? WELCOME_OBSTACLES,
+      types_of_bays: solverResult?.csvInputs?.types_of_bays ?? WELCOME_BAYS,
+      expected_output: activeLayoutCsv ?? solverResult?.outputCsv ?? WELCOME_LAYOUT,
     };
-  }, [caseNumber, solverResult, activeLayoutCsv]);
+  }, [solverResult, activeLayoutCsv]);
 
   const sceneGeometry = useMemo(
     () =>
@@ -357,44 +310,23 @@ export default function App() {
     [activeCsvInputs],
   );
 
-  // Re-added: Calculate center of the warehouse
   const warehouseCenter = useMemo(() => {
-    const outlineCsv = activeCsvInputs.warehouse;
-    const points = parseWarehouseOutlineCsv(outlineCsv);
+    const points = parseWarehouseOutlineCsv(activeCsvInputs.warehouse);
+    if (points.length === 0) return { centerX: 0, centerY: 0 };
 
-    if (points.length === 0) {
-      return { centerX: 0, centerY: 0 };
-    }
-
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const [x, y] of points) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
-
     return {
       centerX: ((minX + maxX) / 2) * WORLD_SCALE,
       centerY: ((minY + maxY) / 2) * WORLD_SCALE,
     };
   }, [activeCsvInputs.warehouse]);
 
-  // Re-added: Parse bay dimensions
-  const bayData = useMemo(() => {
-    const csv = activeCsvInputs.types_of_bays;
-    return parseBaysCsv(csv);
-  }, [activeCsvInputs.types_of_bays]);
-
-  // Re-added: Parse expected output locations
-  const layoutData = useMemo(() => {
-    const csv = activeCsvInputs.expected_output;
-    return parseLayoutCsv(csv);
-  }, [activeCsvInputs.expected_output]);
+  const bayData = useMemo(() => parseBaysCsv(activeCsvInputs.types_of_bays), [activeCsvInputs.types_of_bays]);
+  const layoutData = useMemo(() => parseLayoutCsv(activeCsvInputs.expected_output), [activeCsvInputs.expected_output]);
 
   useEffect(() => {
     return () => {
@@ -430,8 +362,6 @@ export default function App() {
     <div className="app-shell">
       {isSubmittingSolver && <SolverLoader />}
       <Topbar
-        caseNumber={caseNumber}
-        onCaseChange={setCaseNumber}
         onToggleCameraView={toggleCameraView}
         onToggleGaps={toggleGaps}
         onOpenSolverPanel={toggleSolverPanel}
@@ -569,30 +499,16 @@ export default function App() {
             position: cameraPosition,
             fov: 50,
           }}
-          shadows
         >
           <Suspense fallback={null}>
             <color attach="background" args={["#7e7e7e"]} />
-            <directionalLight 
-              ref={lightRef} 
-              position={[10, 50, 10]} 
-              intensity={5} 
-              castShadow
-              shadow-mapSize={[2048, 2048]}
-              shadow-camera-near={0.5}
-              shadow-camera-far={500}
-              shadow-camera-left={-50}
-              shadow-camera-right={50}
-              shadow-camera-top={50}
-              shadow-camera-bottom={-50}
-            />
+            <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
             <ambientLight intensity={3} />
 
             <mesh
               position={[0, FLOOR_Y, 0]}
               ref={meshRef}
               geometry={sceneGeometry.floor}
-              receiveShadow
             >
               <meshStandardMaterial color="#a3a3a3" />
             </mesh>
@@ -616,7 +532,7 @@ export default function App() {
             ))}
 
             {sceneGeometry.walls.map((wall, index) => (
-              <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall} castShadow receiveShadow>
+              <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall}>
                 <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
               </mesh>
             ))}
@@ -630,8 +546,6 @@ export default function App() {
                   obstacle.position[2],
                 ]}
                 geometry={obstacle.geometry}
-                castShadow
-                receiveShadow
               >
                 <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
               </mesh>

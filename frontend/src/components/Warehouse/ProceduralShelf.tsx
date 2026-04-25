@@ -28,8 +28,6 @@ export default function ProceduralShelf({
           pillarHeight / 2,
           depth / 2 - pillarSize / 2 - boundaryInset,
         ]}
-        castShadow
-        receiveShadow
       >
         <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
         <meshStandardMaterial color="#333333" />
@@ -41,8 +39,6 @@ export default function ProceduralShelf({
           pillarHeight / 2,
           depth / 2 - pillarSize / 2 - boundaryInset,
         ]}
-        castShadow
-        receiveShadow
       >
         <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
         <meshStandardMaterial color="#333333" />
@@ -54,8 +50,6 @@ export default function ProceduralShelf({
           pillarHeight / 2,
           -depth / 2 + pillarSize / 2 + boundaryInset,
         ]}
-        castShadow
-        receiveShadow
       >
         <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
         <meshStandardMaterial color="#333333" />
@@ -67,8 +61,6 @@ export default function ProceduralShelf({
           pillarHeight / 2,
           -depth / 2 + pillarSize / 2 + boundaryInset,
         ]}
-        castShadow
-        receiveShadow
       >
         <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
         <meshStandardMaterial color="#333333" />
@@ -82,7 +74,7 @@ export default function ProceduralShelf({
         const isTop = i === numLevels - 1;
 
         return (
-          <mesh key={i} position={[0, yPos + shelfThickness / 2, 0]} castShadow receiveShadow>
+          <mesh key={i} position={[0, yPos + shelfThickness / 2, 0]}>
             {/* Top shelf extends slightly past the pillars to win Z-fighting on both top and side faces */}
             <boxGeometry
               args={[
