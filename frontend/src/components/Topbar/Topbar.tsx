@@ -20,37 +20,34 @@ export default function Topbar({
   const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window;
 
   return (
-    <div className="topbar" style={isMobile ? { justifyContent: 'center' } : {}}>
-      <div className="central-functions"></div>
-      <div className="trailing-functions" style={{ display: 'flex', gap: '8px', justifyContent: isMobile ? 'center' : 'flex-end', width: isMobile ? '100%' : 'auto' }}>
-        <Button
-          variant="contained"
-          sx={{ 
-            backgroundColor: showGaps ? "#ed8200" : "#288aed",
-            "&:hover": { backgroundColor: showGaps ? "#d67500" : "#2176c7" }
-          }}
-          onClick={onToggleGaps}
-        >
-          <ViewInArIcon />
-        </Button>
-        <Button
-          variant="contained"
-          className="bubble"
+    <div className="topbar">
+      <Button
+        variant="contained"
+        sx={{ 
+          backgroundColor: showGaps ? "#ed8200" : "#288aed",
+          "&:hover": { backgroundColor: showGaps ? "#d67500" : "#2176c7" }
+        }}
+        onClick={onToggleGaps}
+      >
+        <ViewInArIcon />
+      </Button>
+      <Button
+        variant="contained"
+        className="bubble"
+        sx={{ backgroundColor: "#288aed" }}
+        onClick={onToggleCameraView}
+      >
+        <VideocamIcon />
+      </Button>
+      {!isMobile && (
+        <Button 
+          variant="contained" 
           sx={{ backgroundColor: "#288aed" }}
-          onClick={onToggleCameraView}
+          onClick={onOpenSolverPanel}
         >
-          <VideocamIcon />
+          <FileUploadIcon />
         </Button>
-        {!isMobile && (
-          <Button 
-            variant="contained" 
-            sx={{ backgroundColor: "#288aed" }}
-            onClick={onOpenSolverPanel}
-          >
-            <FileUploadIcon />
-          </Button>
-        )}
-      </div>
+      )}
     </div>
   );
 }
