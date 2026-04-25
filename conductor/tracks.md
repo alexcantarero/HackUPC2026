@@ -21,3 +21,8 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 - [x] **Track: add a new track for a Jostle algorithm to compute the local search**
   *Link: [./tracks/jostle_20260425/](./tracks/jostle_20260425/)*
+
+---
+
+- [ ] **Track: create a new track for a VNS algorithm for the local search**
+  *Link: [./tracks/vns_20260425/](./tracks/vns_20260425/)*
