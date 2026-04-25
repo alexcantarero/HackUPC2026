@@ -26,10 +26,16 @@ TEST_SRCS = tests/test_collision.cpp \
             $(SRCDIR)/core/collision.cpp \
             $(SRCDIR)/io/parser.cpp
 
-test: $(TEST_SRCS)
+TEST_GA_SRCS = tests/test_ga_ortho.cpp \
+               $(SRCDIR)/solvers/ga_ortho.cpp \
+               $(SRCDIR)/core/collision.cpp
+
+test: $(TEST_SRCS) $(TEST_GA_SRCS)
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) -o bin/test_collision $(TEST_SRCS)
 	./bin/test_collision
+	$(CXX) $(CXXFLAGS) -o bin/test_ga_ortho $(TEST_GA_SRCS)
+	./bin/test_ga_ortho
 
 clean:
 	rm -f $(OBJS) bin/solver bin/test_collision
