@@ -1,0 +1,55 @@
+import * as THREE from "three";
+import ProceduralShelf from "./ProceduralShelf";
+import GapBox from "./GapBox";
+import { WORLD_SCALE, FLOOR_Y } from "../../scene/buildSceneGeometry";
+
+interface WarehouseProps {
+  layoutData: Array<{ id: number; x: number; y: number; rot: number }>;
+  bayData: Record<number, { width: number; depth: number; height: number; gap: number }>;
+  warehouseCenter: { centerX: number; centerY: number };
+  showGaps: boolean;
+}
+
+export default function Warehouse({ layoutData, bayData, warehouseCenter, showGaps }: WarehouseProps) {
+  return (
+    <group>
+      {layoutData.map((item, index) => {
+        const bay = bayData[item.id];
+        if (!bay) return null;
+
+        const boxWidth = bay.width * WORLD_SCALE;
+        const boxHeight = bay.height * WORLD_SCALE;
+        const boxDepth = bay.depth * WORLD_SCALE;
+        const anchorX = item.x * WORLD_SCALE - warehouseCenter.centerX;
+        const anchorZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
+        const rotationY = THREE.MathUtils.degToRad(item.rot);
+        
+        const hue = 40 + (item.id * 137.5) % 300;
+        const color = `hsl(${hue}, 85%, 45%)`;
+
+        return (
+          <group
+            key={`bay-${item.id}-${index}`}
+            position={[anchorX, FLOOR_Y, anchorZ]}
+            rotation={[0, rotationY, 0]}
+          >
+            <ProceduralShelf
+              width={boxWidth}
+              height={boxHeight}
+              depth={boxDepth}
+              color={color}
+            />
+            {showGaps && (
+              <GapBox
+                width={boxWidth}
+                gap={bay.gap}
+                depth={boxDepth}
+                height={boxHeight}
+              />
+            )}
+          </group>
+        );
+      })}
+    </group>
+  );
+}

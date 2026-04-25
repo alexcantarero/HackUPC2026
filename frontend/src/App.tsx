@@ -2,7 +2,7 @@ import "./App.css";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import * as THREE from "three";
 import FadingDollhouseElement from "./components/FadingDollhouseElement";
 import {
@@ -11,47 +11,11 @@ import {
   WORLD_SCALE,
 } from "./scene/buildSceneGeometry";
 import Topbar from "./components/Topbar/Topbar";
+import Warehouse from "./components/Warehouse/Warehouse";
 
 import SolverLoader from "./components/Loader/SolverLoader";
 
 const DEFAULT_CASE_NUMBER = 3;
-
-type RequiredCsvField = "warehouse" | "obstacles" | "ceiling" | "types_of_bays";
-
-type SolveResponse = {
-  ok: boolean;
-  message: string;
-  stdout: string;
-  stderr: string;
-  bestScore: number | null;
-  outputFileName: string | null;
-  outputCsv: string | null;
-  csvInputs: Partial<Record<RequiredCsvField, string>>;
-  exitCode: number;
-  durationMs: number;
-  debug?: string[];
-  algorithmResults?: Array<{
-    algorithm_name: string;
-    score: number;
-    training_score: number;
-    time_took_to_find_best_sol: number;
-    number_of_bays: number;
-    outputFile?: string;
-    outputCsv?: string;
-  }>;
-};
-
-type MockComparisonResult = {
-  algorithm: string;
-  title: string;
-  status: string;
-  bestScore: string;
-  rawScore?: number;
-  runtimeMs: string;
-  outputFile: string;
-  note: string;
-  outputCsv?: string | null;
-};
 
 // --- FILE LOADERS ---
 const warehouseFiles = import.meta.glob(
@@ -151,129 +115,42 @@ function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
 }
 
-function GapBox({
-  width,
-  gap,
-  depth,
-  height,
-}: {
-  width: number;
-  gap: number;
-  depth: number;
-  height: number;
-}) {
-  const gapDepth = gap * WORLD_SCALE;
-  // Position it in FRONT of the bay.
-  // The group is at [anchorX, FLOOR_Y, anchorZ].
-  // ProceduralShelf is centered at [width/2, ..., -depth/2].
-  // So "Front" is at Z = -depth. The gap should extend from -depth to -depth - gapDepth.
-  return (
-    <mesh position={[width / 2, height / 2, -depth - gapDepth / 2]}>
-      <boxGeometry args={[width, height, gapDepth]} />
-      <meshStandardMaterial
-        color="#ff0000"
-        transparent
-        opacity={0.25}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
+type RequiredCsvField = "warehouse" | "obstacles" | "ceiling" | "types_of_bays";
 
-function ProceduralShelf({
-  width,
-  height,
-  depth,
-  color = "#3a82f7",
-}: {
-  width: number;
-  height: number;
-  depth: number;
-  color?: string;
-}) {
-  const pillarSize = 0.15;
-  const shelfThickness = 0.1;
-  const numLevels = 4; // This creates exactly 3 gaps
-  const zFightingOffset = 0.01;
-  const boundaryInset = 0.01; // Inset pillars to let floor/walls win the sides
-  const pillarHeight = height - 0.05; // Slightly shorter to let top shelf win
+type SolveResponse = {
+  ok: boolean;
+  message: string;
+  stdout: string;
+  stderr: string;
+  bestScore: number | null;
+  outputFileName: string | null;
+  outputCsv: string | null;
+  csvInputs: Partial<Record<RequiredCsvField, string>>;
+  exitCode: number;
+  durationMs: number;
+  debug?: string[];
+  algorithmResults?: Array<{
+    algorithm_name: string;
+    score: number;
+    training_score: number;
+    time_took_to_find_best_sol: number;
+    number_of_bays: number;
+    outputFile?: string;
+    outputCsv?: string;
+  }>;
+};
 
-  return (
-    <group position={[width / 2, zFightingOffset, -depth / 2]}>
-      {/* 4 Vertical Pillars */}
-      {/* Front Left */}
-      <mesh
-        position={[
-          -width / 2 + pillarSize / 2 + boundaryInset,
-          pillarHeight / 2,
-          depth / 2 - pillarSize / 2 - boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-      {/* Front Right */}
-      <mesh
-        position={[
-          width / 2 - pillarSize / 2 - boundaryInset,
-          pillarHeight / 2,
-          depth / 2 - pillarSize / 2 - boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-      {/* Back Left */}
-      <mesh
-        position={[
-          -width / 2 + pillarSize / 2 + boundaryInset,
-          pillarHeight / 2,
-          -depth / 2 + pillarSize / 2 + boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-      {/* Back Right */}
-      <mesh
-        position={[
-          width / 2 - pillarSize / 2 - boundaryInset,
-          pillarHeight / 2,
-          -depth / 2 + pillarSize / 2 + boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-
-      {/* Horizontal Shelves */}
-      {Array.from({ length: numLevels }).map((_, i) => {
-        const bottomGap = 1;
-        const availableHeight = height - shelfThickness - bottomGap;
-        const yPos = bottomGap + (i / (numLevels - 1)) * availableHeight;
-        const isTop = i === numLevels - 1;
-
-        return (
-          <mesh key={i} position={[0, yPos + shelfThickness / 2, 0]}>
-            {/* Top shelf extends slightly past the pillars to win Z-fighting on both top and side faces */}
-            <boxGeometry
-              args={[
-                isTop
-                  ? width - boundaryInset * 2 + 0.02
-                  : width - (boundaryInset + pillarSize) * 0.5,
-                shelfThickness,
-                isTop
-                  ? depth - boundaryInset * 2 + 0.02
-                  : depth - (boundaryInset + pillarSize) * 0.5,
-              ]}
-            />
-            <meshStandardMaterial color={color} />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-}
+type MockComparisonResult = {
+  algorithm: string;
+  title: string;
+  status: string;
+  bestScore: string;
+  rawScore?: number;
+  runtimeMs: string;
+  outputFile: string;
+  note: string;
+  outputCsv?: string | null;
+};
 
 // --- MAIN COMPONENT ---
 export default function App() {
@@ -323,11 +200,6 @@ export default function App() {
   const toggleSolverPanel = useCallback(() => {
     if (isSubmittingSolver) return;
     setShowSolverPanel((prev) => !prev);
-  }, [isSubmittingSolver]);
-
-  const closeSolverPanel = useCallback(() => {
-    if (isSubmittingSolver) return;
-    setShowSolverPanel(false);
   }, [isSubmittingSolver]);
 
   const submitSolverRequest = useCallback(
@@ -569,14 +441,6 @@ export default function App() {
         <div className="solver-panel" role="dialog" aria-label="Solver upload">
           <div className="solver-panel-header">
             <h2>Solver</h2>
-            <button
-              type="button"
-              className="solver-close"
-              onClick={closeSolverPanel}
-              disabled={isSubmittingSolver}
-            >
-              Close
-            </button>
           </div>
           <form className="solver-form" onSubmit={submitSolverRequest}>
             <label>
@@ -654,7 +518,8 @@ export default function App() {
               <article
                 key={`${result.algorithm}-${idx}`}
                 className="solver-comparison-card"
-              >                <div className="solver-comparison-card-header">
+              >
+                <div className="solver-comparison-card-header">
                   <div>
                     <span className="solver-comparison-badge">
                       {result.algorithm}
@@ -704,107 +569,83 @@ export default function App() {
             position: cameraPosition,
             fov: 50,
           }}
+          shadows
         >
-          <color attach="background" args={["#7e7e7e"]} />
-          <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
-          <ambientLight intensity={3} />
-
-          <mesh
-            position={[0, FLOOR_Y, 0]}
-            ref={meshRef}
-            geometry={sceneGeometry.floor}
-          >
-            <meshStandardMaterial color="#a3a3a3" />
-          </mesh>
-
-          {sceneGeometry.ceilingParts.map((part, index) => (
-            <FadingDollhouseElement
-              key={`ceiling-${index}`}
-              geometry={part.geometry}
-              positionY={FLOOR_Y + part.y}
-              thresholdY={part.y}
+          <Suspense fallback={null}>
+            <color attach="background" args={["#7e7e7e"]} />
+            <directionalLight 
+              ref={lightRef} 
+              position={[10, 50, 10]} 
+              intensity={5} 
+              castShadow
+              shadow-mapSize={[2048, 2048]}
+              shadow-camera-near={0.5}
+              shadow-camera-far={500}
+              shadow-camera-left={-50}
+              shadow-camera-right={50}
+              shadow-camera-top={50}
+              shadow-camera-bottom={-50}
             />
-          ))}
+            <ambientLight intensity={3} />
 
-          {sceneGeometry.ceilingWalls.map((cw, index) => (
-            <FadingDollhouseElement
-              key={`ceiling-wall-${index}`}
-              geometry={cw.geometry}
-              positionY={FLOOR_Y}
-              thresholdY={cw.topY}
-            />
-          ))}
-
-          {sceneGeometry.walls.map((wall, index) => (
             <mesh
-              key={`wall-${index}`}
               position={[0, FLOOR_Y, 0]}
-              geometry={wall}
+              ref={meshRef}
+              geometry={sceneGeometry.floor}
+              receiveShadow
             >
-              <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+              <meshStandardMaterial color="#a3a3a3" />
             </mesh>
-          ))}
 
-          {sceneGeometry.obstacles.map((obstacle, index) => (
-            <mesh
-              key={`obstacle-${index}`}
-              position={[
-                obstacle.position[0],
-                FLOOR_Y + obstacle.position[1],
-                obstacle.position[2],
-              ]}
-              geometry={obstacle.geometry}
-            >
-              <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
-            </mesh>
-          ))}
-          {layoutData &&
-            layoutData.map((item, index) => {
-              const bay = bayData[item.id];
-              if (!bay) return null; // Fallback if bay type is missing
+            {sceneGeometry.ceilingParts.map((part, index) => (
+              <FadingDollhouseElement
+                key={`ceiling-${index}`}
+                geometry={part.geometry}
+                positionY={FLOOR_Y + part.y}
+                thresholdY={part.y}
+              />
+            ))}
 
-              // 1. Calculate actual world dimensions
-              const boxWidth = bay.width * WORLD_SCALE;
-              const boxHeight = bay.height * WORLD_SCALE;
-              const boxDepth = bay.depth * WORLD_SCALE;
+            {sceneGeometry.ceilingWalls.map((cw, index) => (
+              <FadingDollhouseElement
+                key={`ceiling-wall-${index}`}
+                geometry={cw.geometry}
+                positionY={FLOOR_Y}
+                thresholdY={cw.topY}
+              />
+            ))}
 
-              // 2. Base layout coordinates matched to the centered warehouse
-              const anchorX = item.x * WORLD_SCALE - warehouseCenter.centerX;
-              const anchorZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
+            {sceneGeometry.walls.map((wall, index) => (
+              <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall} castShadow receiveShadow>
+                <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+              </mesh>
+            ))}
 
-              // 3. Rotation
-              const rotationY = THREE.MathUtils.degToRad(item.rot);
+            {sceneGeometry.obstacles.map((obstacle, index) => (
+              <mesh
+                key={`obstacle-${index}`}
+                position={[
+                  obstacle.position[0],
+                  FLOOR_Y + obstacle.position[1],
+                  obstacle.position[2],
+                ]}
+                geometry={obstacle.geometry}
+                castShadow
+                receiveShadow
+              >
+                <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
+              </mesh>
+            ))}
 
-              // 4. Generate color based on ID
-              // Shift the hue by 40 degrees and restrict to a 300-degree range
-              // to avoid the red spectrum (0-40 and 340-360) used by gaps.
-              const hue = 40 + ((item.id * 137.5) % 300);
-              const color = `hsl(${hue}, 85%, 45%)`;
+            <Warehouse 
+              layoutData={layoutData}
+              bayData={bayData}
+              warehouseCenter={warehouseCenter}
+              showGaps={showGaps}
+            />
 
-              return (
-                <group
-                  key={`bay-${item.id}-${index}`}
-                  position={[anchorX, FLOOR_Y, anchorZ]}
-                  rotation={[0, rotationY, 0]}
-                >
-                  <ProceduralShelf
-                    width={boxWidth}
-                    height={boxHeight}
-                    depth={boxDepth}
-                    color={color}
-                  />
-                  {showGaps && (
-                    <GapBox
-                      width={boxWidth}
-                      gap={bay.gap}
-                      depth={boxDepth}
-                      height={boxHeight}
-                    />
-                  )}
-                </group>
-              );
-            })}
-          <CameraControls ref={cameraControlsRef} makeDefault />
+            <CameraControls ref={cameraControlsRef} makeDefault />
+          </Suspense>
         </Canvas>
       </div>
     </div>
