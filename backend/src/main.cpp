@@ -27,7 +27,7 @@ struct Config {
     std::string caseDir  = "../data/input/Case0";
     std::string mode     = "parallel";   // "parallel" | "portfolio"
     std::string algo     = "greedy";     // used in parallel mode
-    std::string outCsv   = "solution.csv";
+    std::string outCsv   = "../data/output/solution.csv";
 };
 
 static Config parseArgs(int argc, char* argv[]) {
@@ -109,11 +109,18 @@ int main(int argc, char* argv[]) {
 
     // 3. Spawn threads
     std::atomic<bool> stop_flag{false};
+    std::atomic<int> active_threads{0};
     std::vector<std::thread> threads;
     threads.reserve(algos.size());
 
-    for (auto& algo : algos)
-        threads.emplace_back([&algo, &stop_flag] { algo->run(stop_flag); });
+    for (auto& algo : algos) {
+        active_threads++;
+        Algorithm* ptr = algo.get();
+        threads.emplace_back([ptr, &stop_flag, &active_threads] { 
+            ptr->run(stop_flag); 
+            active_threads--;
+        });
+    }
 
     // 4. Wait for time limit, then signal stop
     std::this_thread::sleep_for(
