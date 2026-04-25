@@ -3,7 +3,6 @@ import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import Shelf from "./models/shelf.jsx";
 import FadingDollhouseElement from "./components/FadingDollhouseElement";
 import {
   buildSceneGeometry,
@@ -14,15 +13,18 @@ import Topbar from "./components/Topbar/Topbar";
 
 const DEFAULT_CASE_NUMBER = 3;
 
+// --- FILE LOADERS ---
 const warehouseFiles = import.meta.glob(
   "../../data/input/Case*/warehouse.csv",
   { query: "?raw", import: "default", eager: true },
 ) as Record<string, string>;
+
 const ceilingFiles = import.meta.glob("../../data/input/Case*/ceiling.csv", {
   query: "?raw",
   import: "default",
   eager: true,
 }) as Record<string, string>;
+
 const obstacleFiles = import.meta.glob("../../data/input/Case*/obstacles.csv", {
   query: "?raw",
   import: "default",
@@ -44,14 +46,22 @@ const layoutFiles = import.meta.glob(
   },
 ) as Record<string, string>;
 
+// --- PARSING FUNCTIONS ---
+function getCaseCsv(
+  files: Record<string, string>,
+  caseNumber: number,
+  kind: string,
+) {
+  const filePath = `../../data/input/Case${caseNumber}/${kind}.csv`;
+  return files[filePath] ?? "";
+}
+
 function parseBaysCsv(csvString: string) {
   if (!csvString) return {};
   const lines = csvString.trim().split("\n");
   const data: Record<number, { width: number; depth: number; height: number }> =
     {};
 
-  // Parse columns: Id, Width, Depth, Height, Gap, nLoads, Price.
-  // Some files have no header, so parse all lines and keep only numeric rows.
   for (let i = 0; i < lines.length; i++) {
     const cols = lines[i].split(",").map((s) => Number(s.trim()));
     if (
@@ -69,8 +79,6 @@ function parseLayoutCsv(csvString: string) {
   const lines = csvString.trim().split("\n");
   const data: Array<{ id: number; x: number; y: number; rot: number }> = [];
 
-  // Parse columns: Id, X, Y, Rotation.
-  // Some files have no header, so parse all lines and keep only numeric rows.
   for (let i = 0; i < lines.length; i++) {
     const cols = lines[i].split(",").map((s) => Number(s.trim()));
     if (
@@ -96,15 +104,7 @@ function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
 }
 
-function getCaseCsv(
-  files: Record<string, string>,
-  caseNumber: number,
-  kind: string,
-) {
-  const filePath = `../../data/input/Case${caseNumber}/${kind}.csv`;
-  return files[filePath] ?? "";
-}
-
+// --- MAIN COMPONENT ---
 export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
@@ -160,6 +160,7 @@ export default function App() {
     [caseNumber],
   );
 
+  // Re-added: Calculate center of the warehouse
   const warehouseCenter = useMemo(() => {
     const outlineCsv = getCaseCsv(warehouseFiles, caseNumber, "warehouse");
     const points = parseWarehouseOutlineCsv(outlineCsv);
@@ -186,12 +187,13 @@ export default function App() {
     };
   }, [caseNumber]);
 
+  // Re-added: Parse bay dimensions
   const bayData = useMemo(() => {
     const csv = getCaseCsv(bayFiles, caseNumber, "types_of_bays");
     return parseBaysCsv(csv);
   }, [caseNumber]);
 
-  // Parse Layout Coordinates
+  // Re-added: Parse expected output locations
   const layoutData = useMemo(() => {
     const csv = getCaseCsv(layoutFiles, caseNumber, "expected_output");
     return parseLayoutCsv(csv);
@@ -295,46 +297,39 @@ export default function App() {
               <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
             </mesh>
           ))}
-          {/* Previous mesh elements (floor, ceilings, walls, obstacles) remain unchanged */}
+          {layoutData &&
+            layoutData.map((item, index) => {
+              const bay = bayData[item.id];
+              if (!bay) return null; // Fallback if bay type is missing
 
-          {layoutData.map((item, index) => {
-            const bay = bayData[item.id];
-            if (!bay) return null;
+              // 1. Calculate actual world dimensions
+              const boxWidth = bay.width * WORLD_SCALE;
+              const boxHeight = bay.height * WORLD_SCALE;
+              const boxDepth = bay.depth * WORLD_SCALE;
 
-            // 1. POSITION: Translate layout coordinates to world space
-            const posX = item.x * WORLD_SCALE - warehouseCenter.centerX;
-            const posZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
+              // 2. Base layout coordinates matched to the centered warehouse
+              const anchorX = item.x * WORLD_SCALE - warehouseCenter.centerX;
+              const anchorZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
 
-            // 2. ROTATION: Positive Y rotation in Three.js perfectly matches CCW 2D rotation
-            const rotationY = THREE.MathUtils.degToRad(item.rot);
+              // 3. THE FIX: Standard Positive Counter-Clockwise rotation!
+              const rotationY = THREE.MathUtils.degToRad(item.rot);
 
-            // 3. SCALE: Target Size / Native Model Size
-            // Based on the distortion in the last render, the native model's short side is X and long side is Z.
-            const NATIVE_X = 44;
-            const NATIVE_Y = 173; // Height confirmed correct
-            const NATIVE_Z = 158;
-
-            const shelfScale = [
-              (bay.width * WORLD_SCALE) / NATIVE_X,
-              (bay.height * WORLD_SCALE) / NATIVE_Y,
-              (bay.depth * WORLD_SCALE) / NATIVE_Z,
-            ];
-
-            // 4. OFFSETS: Translate the center-pivot 3D model to the bottom-left layout anchor
-            const offsetX = (bay.width * WORLD_SCALE) / 2;
-            const offsetZ = -(bay.depth * WORLD_SCALE) / 2;
-
-            return (
-              <group
-                key={`shelf-${item.id}-${index}`}
-                position={[posX, FLOOR_Y, posZ]}
-                rotation={[0, rotationY, 0]}
-              >
-                <Shelf position={[offsetX, 0, offsetZ]} scale={shelfScale} />
-              </group>
-            );
-          })}
-
+              return (
+                <group
+                  key={`bay-${item.id}-${index}`}
+                  position={[anchorX, FLOOR_Y, anchorZ]}
+                  rotation={[0, rotationY, 0]}
+                >
+                  {/* Local pivot is bottom-left (0,0). 
+                    We offset half the width (+X) and half the depth (-Z) 
+                    so the mesh perfectly spans its footprint entirely inside the warehouse. */}
+                  <mesh position={[boxWidth / 2, boxHeight / 2, -boxDepth / 2]}>
+                    <boxGeometry args={[boxWidth, boxHeight, boxDepth]} />
+                    <meshStandardMaterial color="#3a82f7" />
+                  </mesh>
+                </group>
+              );
+            })}
           <CameraControls ref={cameraControlsRef} makeDefault />
         </Canvas>
       </div>
