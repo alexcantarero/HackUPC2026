@@ -10,7 +10,6 @@ export default function SolverLoader() {
         <div className="solver-loader-bar-bg">
           <div className="solver-loader-bar"></div>
         </div>
-        <div className="solver-loader-subtitle">running searches</div>
       </div>
     </div>
   );

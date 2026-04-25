@@ -184,21 +184,22 @@ app.post(
       // Extract Output folder from stdout
       const folderMatch = runResult.stdout.match(/Output folder:\s*(.+)/);
       if (folderMatch && folderMatch[1]) {
-        // The path printed by C++ is relative to backend/bin, typically like ../data/output/...
-        // But let's just resolve it relative to backendDir
         const rawFolderPath = folderMatch[1].trim();
         const absoluteFolderPath = path.resolve(backendDir, rawFolderPath);
+        console.log(`[API] Parsing output folder: ${absoluteFolderPath}`);
         
         try {
           const filesInFolder = await fs.readdir(absoluteFolderPath);
+          console.log(`[API] Files found: ${filesInFolder.join(", ")}`);
           const algorithmResults = [];
 
           for (const file of filesInFolder) {
             if (file.endsWith(".json")) {
-              const jsonContent = await fs.readFile(path.join(absoluteFolderPath, file), "utf8");
+              const filePath = path.join(absoluteFolderPath, file);
+              console.log(`[API] Reading JSON: ${filePath}`);
+              const jsonContent = await fs.readFile(filePath, "utf8");
               try {
                 const parsedJson = JSON.parse(jsonContent);
-                // Also get the corresponding CSV content if includeOutputCsv is true
                 let csvContent = null;
                 const csvFile = file.replace(".json", ".csv");
                 if (includeOutputCsv && filesInFolder.includes(csvFile)) {
@@ -211,24 +212,24 @@ app.post(
                   outputCsv: csvContent
                 });
               } catch (e) {
-                console.error("Failed to parse JSON output file:", file);
+                console.error(`[API] Failed to parse JSON: ${file}`, e);
               }
             }
           }
           
+          console.log(`[API] Successfully parsed ${algorithmResults.length} results.`);
           payload.algorithmResults = algorithmResults;
           
-          // Fallback for legacy outputFileName/outputCsv handling (taking the best overall)
           if (algorithmResults.length > 0) {
-            // Find the best score (lowest)
             const bestRun = algorithmResults.reduce((prev, current) => (prev.score < current.score) ? prev : current);
             payload.outputFileName = bestRun.outputFile;
             payload.outputCsv = bestRun.outputCsv;
           }
-
         } catch (err) {
-          console.error("Failed to read output folder:", err);
+          console.error(`[API] Failed to read output folder: ${absoluteFolderPath}`, err);
         }
+      } else {
+        console.log("[API] No output folder found in stdout.");
       }
 
       res.status(runResult.exitCode === 0 ? 200 : 500).json(payload);
