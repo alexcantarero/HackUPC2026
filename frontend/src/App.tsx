@@ -5,10 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import Shelf from "./models/shelf.jsx";
 import FadingDollhouseElement from "./components/FadingDollhouseElement";
-import { buildSceneGeometry, FLOOR_Y } from "./scene/buildSceneGeometry";
+import {
+  buildSceneGeometry,
+  FLOOR_Y,
+  WORLD_SCALE,
+} from "./scene/buildSceneGeometry";
 import Topbar from "./components/Topbar/Topbar";
 
-const CASE_NUMBER = 3;
+const DEFAULT_CASE_NUMBER = 3;
 
 const warehouseFiles = import.meta.glob(
   "../../data/input/Case*/warehouse.csv",
@@ -25,8 +29,79 @@ const obstacleFiles = import.meta.glob("../../data/input/Case*/obstacles.csv", {
   eager: true,
 }) as Record<string, string>;
 
-function getCaseCsv(files: Record<string, string>, kind: string) {
-  const filePath = `../../data/input/Case${CASE_NUMBER}/${kind}.csv`;
+const bayFiles = import.meta.glob("../../data/input/Case*/types_of_bays.csv", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+const layoutFiles = import.meta.glob(
+  "../../data/input/Case*/expected_output.csv",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+) as Record<string, string>;
+
+function parseBaysCsv(csvString: string) {
+  if (!csvString) return {};
+  const lines = csvString.trim().split("\n");
+  const data: Record<number, { width: number; depth: number; height: number }> =
+    {};
+
+  // Parse columns: Id, Width, Depth, Height, Gap, nLoads, Price.
+  // Some files have no header, so parse all lines and keep only numeric rows.
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(",").map((s) => Number(s.trim()));
+    if (
+      cols.length >= 4 &&
+      cols.slice(0, 4).every((value) => Number.isFinite(value))
+    ) {
+      data[cols[0]] = { width: cols[1], depth: cols[2], height: cols[3] };
+    }
+  }
+  return data;
+}
+
+function parseLayoutCsv(csvString: string) {
+  if (!csvString) return [];
+  const lines = csvString.trim().split("\n");
+  const data: Array<{ id: number; x: number; y: number; rot: number }> = [];
+
+  // Parse columns: Id, X, Y, Rotation.
+  // Some files have no header, so parse all lines and keep only numeric rows.
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(",").map((s) => Number(s.trim()));
+    if (
+      cols.length >= 4 &&
+      cols.slice(0, 4).every((value) => Number.isFinite(value))
+    ) {
+      data.push({ id: cols[0], x: cols[1], y: cols[2], rot: cols[3] });
+    }
+  }
+  return data;
+}
+
+function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
+  if (!csvString) return [];
+  return csvString
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [xRaw, yRaw] = line.split(",").map((value) => Number(value.trim()));
+      return [xRaw, yRaw] as [number, number];
+    })
+    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+}
+
+function getCaseCsv(
+  files: Record<string, string>,
+  caseNumber: number,
+  kind: string,
+) {
+  const filePath = `../../data/input/Case${caseNumber}/${kind}.csv`;
   return files[filePath] ?? "";
 }
 
@@ -34,6 +109,7 @@ export default function App() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const cameraControlsRef = useRef<CameraControls>(null);
+  const [caseNumber, setCaseNumber] = useState(DEFAULT_CASE_NUMBER);
   const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
   const [, setIsTopView] = useState(false);
 
@@ -73,12 +149,53 @@ export default function App() {
   const sceneGeometry = useMemo(
     () =>
       buildSceneGeometry({
-        warehouseOutlineCsv: getCaseCsv(warehouseFiles, "warehouse"),
-        ceilingCsv: getCaseCsv(ceilingFiles, "ceiling"),
-        obstaclesCsv: getCaseCsv(obstacleFiles, "obstacles"),
+        warehouseOutlineCsv: getCaseCsv(
+          warehouseFiles,
+          caseNumber,
+          "warehouse",
+        ),
+        ceilingCsv: getCaseCsv(ceilingFiles, caseNumber, "ceiling"),
+        obstaclesCsv: getCaseCsv(obstacleFiles, caseNumber, "obstacles"),
       }),
-    [],
+    [caseNumber],
   );
+
+  const warehouseCenter = useMemo(() => {
+    const outlineCsv = getCaseCsv(warehouseFiles, caseNumber, "warehouse");
+    const points = parseWarehouseOutlineCsv(outlineCsv);
+
+    if (points.length === 0) {
+      return { centerX: 0, centerY: 0 };
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (const [x, y] of points) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+
+    return {
+      centerX: ((minX + maxX) / 2) * WORLD_SCALE,
+      centerY: ((minY + maxY) / 2) * WORLD_SCALE,
+    };
+  }, [caseNumber]);
+
+  const bayData = useMemo(() => {
+    const csv = getCaseCsv(bayFiles, caseNumber, "types_of_bays");
+    return parseBaysCsv(csv);
+  }, [caseNumber]);
+
+  // Parse Layout Coordinates
+  const layoutData = useMemo(() => {
+    const csv = getCaseCsv(layoutFiles, caseNumber, "expected_output");
+    return parseLayoutCsv(csv);
+  }, [caseNumber]);
 
   useEffect(() => {
     return () => {
@@ -112,7 +229,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Topbar onToggleCameraView={toggleCameraView} />
+      <Topbar
+        caseNumber={caseNumber}
+        onCaseChange={setCaseNumber}
+        onToggleCameraView={toggleCameraView}
+      />
       <div className="canvas-container">
         <Canvas
           className="canvas"
@@ -174,8 +295,46 @@ export default function App() {
               <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
             </mesh>
           ))}
+          {/* Previous mesh elements (floor, ceilings, walls, obstacles) remain unchanged */}
 
-          <Shelf position={[0, FLOOR_Y, 0]} scale={0.05} />
+          {layoutData.map((item, index) => {
+            const bay = bayData[item.id];
+            if (!bay) return null;
+
+            // 1. POSITION: Translate layout coordinates to world space
+            const posX = item.x * WORLD_SCALE - warehouseCenter.centerX;
+            const posZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
+
+            // 2. ROTATION: Positive Y rotation in Three.js perfectly matches CCW 2D rotation
+            const rotationY = THREE.MathUtils.degToRad(item.rot);
+
+            // 3. SCALE: Target Size / Native Model Size
+            // Based on the distortion in the last render, the native model's short side is X and long side is Z.
+            const NATIVE_X = 44;
+            const NATIVE_Y = 173; // Height confirmed correct
+            const NATIVE_Z = 158;
+
+            const shelfScale = [
+              (bay.width * WORLD_SCALE) / NATIVE_X,
+              (bay.height * WORLD_SCALE) / NATIVE_Y,
+              (bay.depth * WORLD_SCALE) / NATIVE_Z,
+            ];
+
+            // 4. OFFSETS: Translate the center-pivot 3D model to the bottom-left layout anchor
+            const offsetX = (bay.width * WORLD_SCALE) / 2;
+            const offsetZ = -(bay.depth * WORLD_SCALE) / 2;
+
+            return (
+              <group
+                key={`shelf-${item.id}-${index}`}
+                position={[posX, FLOOR_Y, posZ]}
+                rotation={[0, rotationY, 0]}
+              >
+                <Shelf position={[offsetX, 0, offsetZ]} scale={shelfScale} />
+              </group>
+            );
+          })}
+
           <CameraControls ref={cameraControlsRef} makeDefault />
         </Canvas>
       </div>
