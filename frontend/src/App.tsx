@@ -125,7 +125,7 @@ export default function App() {
         onClick={() => setShowIntro(false)}
       >
         <h1 className="intro-title">Warehouse Optimizer</h1>
-        <span className="intro-subtitle">Click to start exploring</span>
+        <span className="intro-subtitle">CLICK TO START...</span>
       </div>
 
       <div className={showIntro ? 'gui-hidden' : ''}>
