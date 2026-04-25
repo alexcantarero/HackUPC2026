@@ -553,7 +553,7 @@ export default function App() {
       {showSolverPanel && (
         <div className="solver-panel" role="dialog" aria-label="Solver upload">
           <div className="solver-panel-header">
-            <h2>Send 4 CSV files to three solvers</h2>
+            <h2>Solver</h2>
             <button
               type="button"
               className="solver-close"
@@ -707,7 +707,7 @@ export default function App() {
             fov: 50,
           }}
         >
-          <color attach="background" args={["#878787"]} />
+          <color attach="background" args={["#7e7e7e"]} />
           <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
           <ambientLight intensity={3} />
 
