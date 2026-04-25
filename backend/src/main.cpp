@@ -6,6 +6,7 @@
 #include "solvers/greedy.hpp"
 #include "solvers/jostle_algorithm.hpp"
 #include <iostream>
+#include <fstream>
 #include <thread>
 #include <vector>
 #include <memory>
@@ -15,6 +16,8 @@
 #include <random>
 #include <csignal>
 #include <cmath>
+#include <map>
+#include <filesystem>
 // ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
 #include "solvers/greedy.hpp"
 #include "solvers/sa.hpp"
@@ -176,35 +179,66 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // --- SAFE CASTING TO PREVENT CSV FILENAME CRASH ---
-    std::string score_str;
-    if (winner->official_score >= 1e10) {
-        score_str = "inf";
-    } else {
-        score_str = std::to_string(static_cast<int>(std::round(winner->official_score / 1000.0))) + "k";
-    }
-    
-    std::string ts = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-    std::string finalCsvName = "../../data/output/" + ts + "_" + winner->producedBy + "_" + score_str + ".csv";
-    std::string finalCsvName2 = "../data/output/" + ts + "_" + winner->producedBy + "_" + score_str + ".csv";
+    // ─── Build output folder named after the overall winner ──────────────────
+    auto scoreTag = [](double s) -> std::string {
+        if (s >= 1e10) return "inf";
+        return std::to_string(static_cast<int>(std::round(s / 1000.0))) + "k";
+    };
 
+    std::string ts = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+
+    std::string folderPath = "../data/output/" + ts + "_" + winner->producedBy + "_" + scoreTag(winner->official_score);
+    std::filesystem::create_directories(folderPath);
+
+    // ─── JSON writer (no external dependency) ────────────────────────────────
+    auto writeJson = [](const std::string& path, const Solution& sol) {
+        std::ofstream f(path);
+        if (!f) return;
+        f << "{\n"
+          << "  \"algorithm_name\": \"" << sol.producedBy << "\",\n"
+          << "  \"score\": " << sol.official_score << ",\n"
+          << "  \"training_score\": " << sol.training_score << ",\n"
+          << "  \"time_took_to_find_best_sol\": " << sol.timeTaken << ",\n"
+          << "  \"number_of_bays\": " << sol.bays.size() << "\n"
+          << "}\n";
+    };
+
+    // ─── Decide which solutions to persist ───────────────────────────────────
+    // parallel mode: same algo ran N times — keep only the overall winner.
+    // any other mode: one entry per unique algorithm name, keeping its best run.
+    std::map<std::string, const Solution*> toSave;
+    if (cfg.mode == "parallel") {
+        toSave[winner->producedBy] = winner;
+    } else {
+        for (const auto& algo : algos) {
+            const Solution& sol = algo->best();
+            std::cout << "Evaluating solution from [" << algo->name() << "] with score " << sol.official_score << "\n";
+            if (sol.bays.empty() || sol.official_score >= std::numeric_limits<double>::max() / 2.0)
+                continue;
+            auto it = toSave.find(sol.producedBy);
+            if (it == toSave.end() || sol.official_score < it->second->official_score)
+                toSave[sol.producedBy] = &sol;
+        }
+    }
+
+    // ─── Write CSV + JSON for every saved solution ────────────────────────────
+    for (const auto& [name, sol] : toSave) {
+        std::string base = folderPath + "/" + ts + "_" + name + "_" + scoreTag(sol->official_score);
+        io::writeSolution(base + ".csv", *sol);
+        writeJson(base + ".json", *sol);
+        std::cout << "  [" << name << "] score=" << sol->official_score
+                  << "  training=" << sol->training_score
+                  << "  bays=" << sol->bays.size()
+                  << "  → " << base << ".{csv,json}\n";
+    }
 
     std::cout << "Best solution: score=" << winner->official_score
               << "  (training_score=" << winner->training_score << ")"
               << "  time=" << winner->timeTaken << "s"
               << "  bays=" << winner->bays.size()
               << "  algorithm=" << winner->producedBy << "\n";
-
-    if (io::writeSolution(finalCsvName, *winner)) {
-        std::cout << "Successfully saved solution to: " << finalCsvName << "\n";
-    } else {
-        if (io::writeSolution(finalCsvName2, *winner))
-            std::cout << "Successfully saved solution to: " << finalCsvName2 << "\n";
-        else {
-            std::cerr << "Failed to save solution to: " << finalCsvName << "saving to default \"solution.csv\"" << "\n";
-            io::writeSolution("solution.csv", *winner);
-        }
-    }
+    std::cout << "Output folder: " << folderPath << "\n";
 
     return 0;
 }
