@@ -35,11 +35,7 @@ export default function AlgorithmResults({
         {results.map((result, idx) => (
           <article key={`${result.algorithm}-${idx}`} className="solver-comparison-card">
             <div className="solver-comparison-card-header">
-              <div>
-                <span className="solver-comparison-badge">{result.algorithm}</span>
-                <h3>{result.title}</h3>
-              </div>
-              <span className="solver-comparison-status">{result.status}</span>
+              <h3>{result.title}</h3>
             </div>
             <div className="solver-comparison-metrics">
               <div>
@@ -49,10 +45,6 @@ export default function AlgorithmResults({
               <div>
                 <span>Runtime</span>
                 <strong>{result.runtimeMs}</strong>
-              </div>
-              <div>
-                <span>Output</span>
-                <strong>{result.outputFile}</strong>
               </div>
             </div>
             <p className="solver-comparison-note">{result.note}</p>
