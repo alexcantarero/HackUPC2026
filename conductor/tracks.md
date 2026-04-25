@@ -4,10 +4,15 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [ ] **Track: Set up baseline template features and UI layout**
-  *Link: [./tracks/setup_template_20260424/](./tracks/setup_template_20260424/)*
+- [x] **Track: Set up baseline template features and UI layout**
+  *Status: Removed from active tracks (folder deleted)*
 
 ---
 
-- [ ] **Track: Implement Orthogonal Genetic Algorithm (GA Ortho)**
+- [~] **Track: Implement Orthogonal Genetic Algorithm (GA Ortho)**
   *Link: [./tracks/ga_ortho_20260425/](./tracks/ga_ortho_20260425/)*
+
+---
+
+- [~] **Track: Implement Continuous Genetic Algorithm (GA Angle)**
+  *Link: [./tracks/ga_angle_20260425/](./tracks/ga_angle_20260425/)*

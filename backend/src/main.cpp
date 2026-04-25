@@ -1,6 +1,8 @@
 #include "core/types.hpp"
 #include "io/parser.hpp"
 #include "solvers/algorithm.hpp"
+#include "solvers/ga_angle.hpp"
+#include "solvers/ga_ortho.hpp"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -12,8 +14,6 @@
 
 // ─── Algorithm stubs (replace with real includes as solvers are implemented) ──
 // #include "solvers/greedy.hpp"
-// #include "solvers/ga_ortho.hpp"
-// #include "solvers/ga_angle.hpp"
 // #include "solvers/sa.hpp"
 // #include "solvers/jostle.hpp"
 // #include "solvers/vns.hpp"
@@ -51,8 +51,8 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
 {
     // Uncomment each line as the solver is implemented:
     // if (algoName == "greedy")   return std::make_unique<GreedySolver>(info, seed);
-    // if (algoName == "ga_ortho") return std::make_unique<GaOrtho>(info, seed);
-    // if (algoName == "ga_angle") return std::make_unique<GaAngle>(info, seed);
+    if (algoName == "ga_ortho") return std::make_unique<GAOrtho>(info, seed);
+    if (algoName == "ga_angle") return std::make_unique<GAAngle>(info, seed);
     // if (algoName == "sa")       return std::make_unique<SimulatedAnnealing>(info, seed);
     // if (algoName == "jostle")   return std::make_unique<Jostle>(info, seed);
     // if (algoName == "vns")      return std::make_unique<Vns>(info, seed);

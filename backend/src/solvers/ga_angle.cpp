@@ -1,20 +1,23 @@
-#include "ga_ortho.hpp"
+#include "ga_angle.hpp"
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
-GAOrtho::GAOrtho(const StaticState& info, uint64_t seed)
+GAAngle::GAAngle(const StaticState& info, uint64_t seed)
     : GeneticAlgorithm(info, seed) {
 }
 
-Solution GAOrtho::decodeChromosome(const Chromosome& chromosome) {
-    return decodeOrthogonalBLF(chromosome);
+Solution GAAngle::decodeChromosome(const Chromosome& chromosome) {
+    return decodeContinuousBLF(chromosome);
 }
 
-Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
+Solution GAAngle::decodeContinuousBLF(const Chromosome& chromosome) {
     Solution decoded;
     decoded.producedBy = name();
     constexpr double kAnchorEps = 1e-3;
+    constexpr int kQuasiAnglesPerAnchor = 12;
     constexpr int kMaxAnchors = 256;
+    constexpr double kGoldenAngle = 137.50776405003785;
 
     if (chromosome.empty()) {
         decoded.score = evaluateQ(decoded);
@@ -32,9 +35,9 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
     anchors.push_back({min_x + kAnchorEps, min_y + kAnchorEps});
 
     SpatialGrid decode_grid(defaultCellSize());
-    for (const auto& bay_id : chromosome) {
-        const BayType* bay_type = getBayTypeById(bay_id);
-        if (bay_type == nullptr) {
+
+    for (int bay_id : chromosome) {
+        if (getBayTypeById(bay_id) == nullptr) {
             continue;
         }
 
@@ -44,7 +47,19 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
         double best_x = std::numeric_limits<double>::max();
 
         for (const auto& anchor : anchors) {
-            for (double angle : {0.0, 90.0, 180.0, 270.0}) {
+            std::vector<double> angles = {0.0, 90.0, 180.0, 270.0};
+            const double base_angle = randomAngleDegrees();
+            for (int i = 0; i < kQuasiAnglesPerAnchor; ++i) {
+                angles.push_back(
+                    std::fmod(base_angle + i * kGoldenAngle, 360.0));
+            }
+
+            bool anchor_found = false;
+            Bay anchor_best{bay_id, 0.0, 0.0, 0.0};
+            double anchor_best_y = std::numeric_limits<double>::max();
+            double anchor_best_x = std::numeric_limits<double>::max();
+
+            for (double angle : angles) {
                 Bay candidate{bay_id, anchor.x, anchor.y, angle};
                 if (!CollisionChecker::isValidPlacement(
                         candidate,
@@ -54,13 +69,50 @@ Solution GAOrtho::decodeOrthogonalBLF(const Chromosome& chromosome) {
                     continue;
                 }
 
+                if (!anchor_found ||
+                    candidate.y < anchor_best_y ||
+                    (candidate.y == anchor_best_y && candidate.x < anchor_best_x)) {
+                    anchor_found = true;
+                    anchor_best = candidate;
+                    anchor_best_y = candidate.y;
+                    anchor_best_x = candidate.x;
+                }
+            }
+
+            if (anchor_found) {
+                const std::vector<double> local_deltas = {
+                    -12.0, -6.0, -3.0, -1.0, 1.0, 3.0, 6.0, 12.0
+                };
+                for (double delta : local_deltas) {
+                    double refined_angle = std::fmod(anchor_best.rotation + delta, 360.0);
+                    if (refined_angle < 0.0) {
+                        refined_angle += 360.0;
+                    }
+
+                    Bay refined{bay_id, anchor.x, anchor.y, refined_angle};
+                    if (!CollisionChecker::isValidPlacement(
+                            refined,
+                            decoded.bays,
+                            &info_,
+                            &decode_grid)) {
+                        continue;
+                    }
+
+                    if (refined.y < anchor_best_y ||
+                        (refined.y == anchor_best_y && refined.x < anchor_best_x)) {
+                        anchor_best = refined;
+                        anchor_best_y = refined.y;
+                        anchor_best_x = refined.x;
+                    }
+                }
+
                 if (!found ||
-                    candidate.y < best_y ||
-                    (candidate.y == best_y && candidate.x < best_x)) {
+                    anchor_best.y < best_y ||
+                    (anchor_best.y == best_y && anchor_best.x < best_x)) {
                     found = true;
-                    best_candidate = candidate;
-                    best_y = candidate.y;
-                    best_x = candidate.x;
+                    best_candidate = anchor_best;
+                    best_y = anchor_best.y;
+                    best_x = anchor_best.x;
                 }
             }
         }
