@@ -1,7 +1,8 @@
 import "./App.css";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { XR, createXRStore } from "@react-three/xr";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import * as THREE from "three";
 import FadingDollhouseElement from "./components/FadingDollhouseElement";
 import {
@@ -10,6 +11,8 @@ import {
   WORLD_SCALE,
 } from "./scene/buildSceneGeometry";
 import Topbar from "./components/Topbar/Topbar";
+import Warehouse from "./components/Warehouse/Warehouse";
+import ARQRDialog from "./components/AR/ARQRDialog";
 
 const DEFAULT_CASE_NUMBER = 3;
 
@@ -111,133 +114,19 @@ function parseWarehouseOutlineCsv(csvString: string): Array<[number, number]> {
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
 }
 
-function GapBox({
-  width,
-  gap,
-  depth,
-  height,
-}: {
-  width: number;
-  gap: number;
-  depth: number;
-  height: number;
-}) {
-  const gapDepth = gap * WORLD_SCALE;
-  // Position it in FRONT of the bay. 
-  // The group is at [anchorX, FLOOR_Y, anchorZ]. 
-  // ProceduralShelf is centered at [width/2, ..., -depth/2].
-  // So "Front" is at Z = -depth. The gap should extend from -depth to -depth - gapDepth.
-  return (
-    <mesh position={[width / 2, height / 2, -depth - gapDepth / 2]}>
-      <boxGeometry args={[width, height, gapDepth]} />
-      <meshStandardMaterial
-        color="#ff0000"
-        transparent
-        opacity={0.25}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
-
-function ProceduralShelf({
-  width,
-  height,
-  depth,
-  color = "#3a82f7",
-}: {
-  width: number;
-  height: number;
-  depth: number;
-  color?: string;
-}) {
-  const pillarSize = 0.15;
-  const shelfThickness = 0.1;
-  const numLevels = 4; // This creates exactly 3 gaps
-  const zFightingOffset = 0.01;
-  const boundaryInset = 0.01; // Inset pillars to let floor/walls win the sides
-  const pillarHeight = height - 0.05; // Slightly shorter to let top shelf win
-
-  return (
-    <group position={[width / 2, zFightingOffset, -depth / 2]}>
-      {/* 4 Vertical Pillars */}
-      {/* Front Left */}
-      <mesh
-        position={[
-          -width / 2 + pillarSize / 2 + boundaryInset,
-          pillarHeight / 2,
-          depth / 2 - pillarSize / 2 - boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-      {/* Front Right */}
-      <mesh
-        position={[
-          width / 2 - pillarSize / 2 - boundaryInset,
-          pillarHeight / 2,
-          depth / 2 - pillarSize / 2 - boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-      {/* Back Left */}
-      <mesh
-        position={[
-          -width / 2 + pillarSize / 2 + boundaryInset,
-          pillarHeight / 2,
-          -depth / 2 + pillarSize / 2 + boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-      {/* Back Right */}
-      <mesh
-        position={[
-          width / 2 - pillarSize / 2 - boundaryInset,
-          pillarHeight / 2,
-          -depth / 2 + pillarSize / 2 + boundaryInset,
-        ]}
-      >
-        <boxGeometry args={[pillarSize, pillarHeight, pillarSize]} />
-        <meshStandardMaterial color="#333333" />
-      </mesh>
-
-      {/* Horizontal Shelves */}
-      {Array.from({ length: numLevels }).map((_, i) => {
-        const bottomGap = 1;
-        const availableHeight = height - shelfThickness - bottomGap;
-        const yPos = bottomGap + (i / (numLevels - 1)) * availableHeight;
-        const isTop = i === numLevels - 1;
-
-        return (
-          <mesh key={i} position={[0, yPos + shelfThickness / 2, 0]}>
-            {/* Top shelf extends slightly past the pillars to win Z-fighting on both top and side faces */}
-            <boxGeometry
-              args={[
-                isTop
-                  ? width - boundaryInset * 2 + 0.02
-                  : width - (boundaryInset + pillarSize) * 0.5,
-                shelfThickness,
-                isTop
-                  ? depth - boundaryInset * 2 + 0.02
-                  : depth - (boundaryInset + pillarSize) * 0.5,
-              ]}
-            />
-            <meshStandardMaterial color={color} />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-}
-
-
 // --- MAIN COMPONENT ---
 export default function App() {
+  const [isReady, setIsReady] = useState(false);
+  const store = useMemo(() => createXRStore({
+    depthSensing: true,
+    hitTest: true,
+  }), []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsReady(true), 500);
+    return () => clearTimeout(timer);
+  }, []);
+
   const lightRef = useRef<THREE.DirectionalLight>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const cameraControlsRef = useRef<CameraControls>(null);
@@ -245,9 +134,14 @@ export default function App() {
   const [cameraPosition] = useState<[number, number, number]>([0, 5, 200]);
   const [, setIsTopView] = useState(false);
   const [showGaps, setShowGaps] = useState(false);
+  const [showARDialog, setShowARDialog] = useState(false);
 
   const toggleGaps = useCallback(() => {
     setShowGaps((prev) => !prev);
+  }, []);
+
+  const toggleARDialog = useCallback(() => {
+    setShowARDialog((prev) => !prev);
   }, []);
 
   const setTopView = useCallback(() => {
@@ -297,7 +191,6 @@ export default function App() {
     [caseNumber],
   );
 
-  // Re-added: Calculate center of the warehouse
   const warehouseCenter = useMemo(() => {
     const outlineCsv = getCaseCsv(warehouseFiles, caseNumber, "warehouse");
     const points = parseWarehouseOutlineCsv(outlineCsv);
@@ -306,16 +199,10 @@ export default function App() {
       return { centerX: 0, centerY: 0 };
     }
 
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const [x, y] of points) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
 
     return {
@@ -324,13 +211,11 @@ export default function App() {
     };
   }, [caseNumber]);
 
-  // Re-added: Parse bay dimensions
   const bayData = useMemo(() => {
     const csv = getCaseCsv(bayFiles, caseNumber, "types_of_bays");
     return parseBaysCsv(csv);
   }, [caseNumber]);
 
-  // Re-added: Parse expected output locations
   const layoutData = useMemo(() => {
     const csv = getCaseCsv(layoutFiles, caseNumber, "expected_output");
     return parseLayoutCsv(csv);
@@ -374,117 +259,124 @@ export default function App() {
         onToggleCameraView={toggleCameraView}
         onToggleGaps={toggleGaps}
         showGaps={showGaps}
+        onToggleAR={toggleARDialog}
+        showAR={showARDialog}
       />
-      <div className="canvas-container">
-        <Canvas
-          className="canvas"
-          camera={{
-            position: cameraPosition,
-            fov: 50,
-          }}
-        >
-          <color attach="background" args={["#878787"]} />
-          <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
-          <ambientLight intensity={3} />
 
-          <mesh
-            position={[0, FLOOR_Y, 0]}
-            ref={meshRef}
-            geometry={sceneGeometry.floor}
+      <ARQRDialog open={showARDialog} onClose={() => setShowARDialog(false)} />
+
+      {!isReady ? (
+        <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#878787', color: 'white' }}>
+          <h2>Loading Warehouse...</h2>
+        </div>
+      ) : (
+        <>
+          <div 
+            style={{ 
+              position: 'absolute', 
+              bottom: 40, 
+              left: '50%', 
+              transform: 'translateX(-50%)', 
+              zIndex: 1000,
+              display: ('ontouchstart' in window) ? 'block' : 'none' 
+            }}
           >
-            <meshStandardMaterial color="#a3a3a3" />
-          </mesh>
-
-          {sceneGeometry.ceilingParts.map((part, index) => (
-            <FadingDollhouseElement
-              key={`ceiling-${index}`}
-              geometry={part.geometry}
-              positionY={FLOOR_Y + part.y}
-              thresholdY={part.y}
-            />
-          ))}
-
-          {sceneGeometry.ceilingWalls.map((cw, index) => (
-            <FadingDollhouseElement
-              key={`ceiling-wall-${index}`}
-              geometry={cw.geometry}
-              positionY={FLOOR_Y}
-              thresholdY={cw.topY}
-            />
-          ))}
-
-          {sceneGeometry.walls.map((wall, index) => (
-            <mesh
-              key={`wall-${index}`}
-              position={[0, FLOOR_Y, 0]}
-              geometry={wall}
+            <button 
+              onClick={async () => {
+                try {
+                  await store.enterAR();
+                } catch (e) {
+                  alert(
+                    "WebXR is not supported by your current browser.\n\n" +
+                    "If you are on an iPhone, standard Safari does not support AR. " +
+                    "Please download 'WebXR Viewer' by Mozilla from the App Store and open this link there to view the hologram."
+                  );
+                }
+              }}
+              style={{
+                padding: '16px 32px',
+                backgroundColor: '#ff5722',
+                color: 'white',
+                border: 'none',
+                borderRadius: '50px',
+                fontWeight: 'bold',
+                fontSize: '1.1rem',
+                cursor: 'pointer',
+                boxShadow: '0 8px 15px rgba(0,0,0,0.3)',
+                WebkitAppearance: 'none'
+              }}
             >
-              <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
-            </mesh>
-          ))}
+              PROJECT ON TABLE (AR)
+            </button>
+          </div>
 
-          {sceneGeometry.obstacles.map((obstacle, index) => (
-            <mesh
-              key={`obstacle-${index}`}
-              position={[
-                obstacle.position[0],
-                FLOOR_Y + obstacle.position[1],
-                obstacle.position[2],
-              ]}
-              geometry={obstacle.geometry}
+          <div className="canvas-container">
+            <Canvas
+              className="canvas"
+              camera={{ position: cameraPosition, fov: 50 }}
             >
-              <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
-            </mesh>
-          ))}
-          {layoutData &&
-            layoutData.map((item, index) => {
-              const bay = bayData[item.id];
-              if (!bay) return null; // Fallback if bay type is missing
+              <XR store={store}>
+                <Suspense fallback={null}>
+                  <color attach="background" args={["#878787"]} />
+                  <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
+                  <ambientLight intensity={3} />
 
-              // 1. Calculate actual world dimensions
-              const boxWidth = bay.width * WORLD_SCALE;
-              const boxHeight = bay.height * WORLD_SCALE;
-              const boxDepth = bay.depth * WORLD_SCALE;
+                  <mesh position={[0, FLOOR_Y, 0]} ref={meshRef} geometry={sceneGeometry.floor}>
+                    <meshStandardMaterial color="#a3a3a3" />
+                  </mesh>
 
-              // 2. Base layout coordinates matched to the centered warehouse
-              const anchorX = item.x * WORLD_SCALE - warehouseCenter.centerX;
-              const anchorZ = -(item.y * WORLD_SCALE - warehouseCenter.centerY);
-
-              // 3. Rotation
-              const rotationY = THREE.MathUtils.degToRad(item.rot);
-
-              // 4. Generate color based on ID
-              // Shift the hue by 40 degrees and restrict to a 300-degree range
-              // to avoid the red spectrum (0-40 and 340-360) used by gaps.
-              const hue = 40 + (item.id * 137.5) % 300; 
-              const color = `hsl(${hue}, 85%, 45%)`;
-
-              return (
-                <group
-                  key={`bay-${item.id}-${index}`}
-                  position={[anchorX, FLOOR_Y, anchorZ]}
-                  rotation={[0, rotationY, 0]}
-                >
-                  <ProceduralShelf
-                    width={boxWidth}
-                    height={boxHeight}
-                    depth={boxDepth}
-                    color={color}
-                  />
-                  {showGaps && (
-                    <GapBox
-                      width={boxWidth}
-                      gap={bay.gap}
-                      depth={boxDepth}
-                      height={boxHeight}
+                  {sceneGeometry.ceilingParts.map((part, index) => (
+                    <FadingDollhouseElement
+                      key={`ceiling-${index}`}
+                      geometry={part.geometry}
+                      positionY={FLOOR_Y + part.y}
+                      thresholdY={part.y}
                     />
-                  )}
-                </group>
-              );
-            })}
-          <CameraControls ref={cameraControlsRef} makeDefault />
-        </Canvas>
-      </div>
+                  ))}
+
+                  {sceneGeometry.ceilingWalls.map((cw, index) => (
+                    <FadingDollhouseElement
+                      key={`ceiling-wall-${index}`}
+                      geometry={cw.geometry}
+                      positionY={FLOOR_Y}
+                      thresholdY={cw.topY}
+                    />
+                  ))}
+
+                  {sceneGeometry.walls.map((wall, index) => (
+                    <mesh key={`wall-${index}`} position={[0, FLOOR_Y, 0]} geometry={wall}>
+                      <meshStandardMaterial color="#c4c4c4" side={THREE.BackSide} />
+                    </mesh>
+                  ))}
+
+                  {sceneGeometry.obstacles.map((obstacle, index) => (
+                    <mesh
+                      key={`obstacle-${index}`}
+                      position={[
+                        obstacle.position[0],
+                        FLOOR_Y + obstacle.position[1],
+                        obstacle.position[2],
+                      ]}
+                      geometry={obstacle.geometry}
+                    >
+                      <meshStandardMaterial color="#ec8200" side={THREE.FrontSide} />
+                    </mesh>
+                  ))}
+
+                  <Warehouse 
+                    layoutData={layoutData}
+                    bayData={bayData}
+                    warehouseCenter={warehouseCenter}
+                    showGaps={showGaps}
+                  />
+
+                  <CameraControls ref={cameraControlsRef} makeDefault />
+                </Suspense>
+              </XR>
+            </Canvas>
+          </div>
+        </>
+      )}
     </div>
   );
 }

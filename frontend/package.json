@@ -16,6 +16,8 @@
     "@mui/material": "^9.0.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.0",
+    "@react-three/xr": "^6.6.29",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "three": "^0.184.0"

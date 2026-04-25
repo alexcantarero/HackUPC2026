@@ -7,6 +7,7 @@ import { resolve } from 'node:path'
 export default defineConfig({
   assetsInclude: ['**/*.glb'],
   server: {
+    allowedHosts: true,
     fs: {
       allow: [resolve(__dirname, '..')],
     },

@@ -3,6 +3,7 @@ import FileUploadIcon from "@mui/icons-material/FileUpload";
 import ClearAllIcon from "@mui/icons-material/ClearAll";
 import VideocamIcon from "@mui/icons-material/Videocam";
 import ViewInArIcon from "@mui/icons-material/ViewInAr";
+import QrCodeIcon from "@mui/icons-material/QrCode";
 import {
   Button,
   FormControl,
@@ -20,6 +21,8 @@ type TopbarProps = {
   onToggleCameraView: () => void;
   onToggleGaps: () => void;
   showGaps: boolean;
+  onToggleAR: () => void;
+  showAR: boolean;
 };
 
 export default function Topbar({
@@ -28,6 +31,8 @@ export default function Topbar({
   onToggleCameraView,
   onToggleGaps,
   showGaps,
+  onToggleAR,
+  showAR,
 }: TopbarProps) {
   const [casesMenuAnchor, setCasesMenuAnchor] = useState<null | HTMLElement>(
     null,
@@ -48,11 +53,30 @@ export default function Topbar({
     closeCasesMenu();
   };
 
+  const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window;
+
   return (
-    <div className="topbar">
-      <div className="leading-tooltip">Mecalux Bay Distributor</div>
-      <div className="central-functions"></div>
-      <div className="trailing-functions">
+    <div className="topbar" style={isMobile ? { justifyContent: 'center' } : {}}>
+      {!isMobile && (
+        <div className="leading-tooltip" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
+          Mecalux Bay Distributor
+        </div>
+      )}
+      {!isMobile && <div className="central-functions"></div>}
+      <div className="trailing-functions" style={{ display: 'flex', gap: '8px', justifyContent: isMobile ? 'center' : 'flex-end', width: isMobile ? '100%' : 'auto' }}>
+        {/* Hide QR button on touch devices */}
+        {!isMobile && (
+          <Button
+            variant="contained"
+            sx={{ 
+              backgroundColor: showAR ? "#ff5722" : "#288aed",
+              "&:hover": { backgroundColor: showAR ? "#d67500" : "#2176c7" },
+            }}
+            onClick={onToggleAR}
+          >
+            <QrCodeIcon />
+          </Button>
+        )}
         <Button
           variant="contained"
           sx={{ 
@@ -63,9 +87,11 @@ export default function Topbar({
         >
           <ViewInArIcon />
         </Button>
-        <Button variant="contained" sx={{ backgroundColor: "#288aed" }}>
-          <FileUploadIcon />
-        </Button>
+        {!isMobile && (
+          <Button variant="contained" sx={{ backgroundColor: "#288aed" }}>
+            <FileUploadIcon />
+          </Button>
+        )}
         <Button
           variant="contained"
           className="bubble"
