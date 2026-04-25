@@ -26,3 +26,8 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 - [ ] **Track: create a new track for a VNS algorithm for the local search**
   *Link: [./tracks/vns_20260425/](./tracks/vns_20260425/)*
+
+---
+
+- [ ] **Track: Reimplement AR hologram feature (QR code to mobile web, WebXR + USDZ support, table-top scale) on the improve-frontend branch.**
+*Link: [./tracks/mobile_ar_20260425/](./tracks/mobile_ar_20260425/)*

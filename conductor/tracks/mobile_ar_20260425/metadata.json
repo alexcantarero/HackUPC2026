@@ -1,0 +1,8 @@
+{
+  "track_id": "mobile_ar_20260425",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-04-25T18:00:00Z",
+  "updated_at": "2026-04-25T18:00:00Z",
+  "description": "Reimplement AR hologram feature (QR code to mobile web, WebXR + USDZ support, table-top scale) on the improve-frontend branch."
+}
