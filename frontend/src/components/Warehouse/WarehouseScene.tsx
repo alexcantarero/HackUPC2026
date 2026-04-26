@@ -93,7 +93,21 @@ export default function WarehouseScene({
         onSelectBay={onSelectBay}
       />
 
-      <CameraControls ref={cameraControlsRef} makeDefault />
+      <CameraControls 
+        ref={cameraControlsRef} 
+        makeDefault 
+        touches={{
+          one: 32,  // ROTATE
+          two: 512, // TOUCH_ZOOM_PAN
+          three: 0
+        }}
+        mouseButtons={{
+          left: 1,   // ROTATE
+          middle: 8, // DOLLY
+          right: 2,  // PAN
+          wheel: 8,  // DOLLY
+        }}
+      />
     </Suspense>
   );
 }
