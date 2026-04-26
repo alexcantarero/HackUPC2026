@@ -87,9 +87,9 @@ if [ $READY -eq 1 ]; then
             echo -e "\n${GREEN}Starting Cloudflare Tunnel (via npx)...${NC}"
             npx cloudflared tunnel --url http://localhost:5173 > tunnel.log 2>&1 &
             TUNNEL_PID=$!
-            echo -e "${BLUE}Waiting for tunnel URL...${NC}"
-            sleep 5
-            TUNNEL_URL=$(grep -o 'https://[-a-z0-9.]*\.trycloudflare.com' tunnel.log | head -n 1)
+            echo -e "${BLUE}Waiting for tunnel URL (this can take ~10s)...${NC}"
+            sleep 10
+            TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" tunnel.log | head -n 1)
             if [ -n "$TUNNEL_URL" ]; then
                 echo -e "${GREEN}  TUNNEL READY!${NC}"
                 echo -e "${BLUE}  Public URL: ${NC}${ORANGE}${TUNNEL_URL}${NC}"
