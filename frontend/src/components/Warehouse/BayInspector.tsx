@@ -58,8 +58,8 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
             </marker>
           </defs>
           <line
-            x1={size.width - 164} // Approx center of the bottom-right panel
-            y1={size.height - 110}
+            x1={size.width - 130} // Centered on the new 220px panel
+            y1={size.height - 90}
             x2={screenPos.x}
             y2={screenPos.y}
             stroke="#3a82f7"
@@ -72,27 +72,24 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
 
       {/* The Panel (Screen Space) */}
       <div className="solver-panel bay-inspector-panel" style={{ pointerEvents: "auto" }}>
-        <div className="solver-panel-header">
-          <h2>Bay Details</h2>
+        <div className="solver-panel-header" style={{ marginBottom: "12px" }}>
+          <h2 style={{ fontSize: "0.7rem" }}>Bay Details</h2>
         </div>
         <div className="solver-comparison-card" style={{ border: "none", background: "none", padding: 0 }}>
-          <div className="solver-comparison-metrics" style={{ flexDirection: "column", gap: "12px", background: "none", padding: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Bay ID</span>
-              <strong style={{ fontSize: "1.2rem" }}>#{selectedBay.id}</strong>
+          <div className="solver-comparison-metrics" style={{ flexDirection: "column", gap: "8px", background: "none", padding: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span>ID</span>
+              <strong style={{ fontSize: "1rem" }}>#{selectedBay.id}</strong>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <span>Loads</span>
-              <strong style={{ color: "#ffffff" }}>{selectedBay.nLoads} units</strong>
+              <strong style={{ color: "#ffffff", fontSize: "0.85rem" }}>{selectedBay.nLoads}</strong>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <span>Price</span>
-              <strong style={{ color: "#ed8200" }}>{selectedBay.price.toLocaleString()} €</strong>
+              <strong style={{ color: "#ed8200", fontSize: "0.85rem" }}>{selectedBay.price} €</strong>
             </div>
           </div>
-          <p className="solver-comparison-note" style={{ marginTop: "16px", fontStyle: "italic" }}>
-            Operational parameters for this rack configuration.
-          </p>
         </div>
       </div>
 
@@ -102,12 +99,12 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
           bottom: 24px;
           right: 24px;
           top: auto;
-          width: 280px;
-          padding: 20px;
-          animation: panelSlideUp 0.3s ease-out;
+          width: 220px;
+          padding: 16px;
+          animation: panelSlideUp 0.2s ease-out;
         }
         @keyframes panelSlideUp {
-          from { opacity: 0; transform: translateY(20px); }
+          from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>

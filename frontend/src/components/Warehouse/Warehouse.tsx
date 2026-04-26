@@ -41,7 +41,7 @@ export default function Warehouse({ layoutData, bayData, warehouseCenter, showGa
             key={`bay-${item.id}-${index}`}
             position={[anchorX, FLOOR_Y, anchorZ]}
             rotation={[0, rotationY, 0]}
-            onClick={(e) => {
+            onPointerOver={(e) => {
               e.stopPropagation();
               onSelectBay({
                 id: item.id,
@@ -49,6 +49,9 @@ export default function Warehouse({ layoutData, bayData, warehouseCenter, showGa
                 price: bay.price,
                 position: [center.x, center.y, center.z]
               });
+            }}
+            onPointerOut={() => {
+              onSelectBay(null);
             }}
           >
             <ProceduralShelf
