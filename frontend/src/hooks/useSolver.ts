@@ -48,8 +48,7 @@ export function useSolver() {
     formData.append("mode", "multiple");
 
     try {
-      const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-      const apiBase = import.meta.env.VITE_SOLVER_API_URL ?? `http://${hostname}:8787`;
+      const apiBase = import.meta.env.VITE_SOLVER_API_URL ?? "";
       const response = await fetch(`${apiBase}/api/solve`, {
         method: "POST",
         body: formData,
