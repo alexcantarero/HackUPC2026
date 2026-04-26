@@ -11,6 +11,42 @@ export function useSolver() {
   const [activeLayoutCsv, setActiveLayoutCsv] = useState<string | null>(null);
   const [selectedAlgoName, setSelectedAlgoName] = useState<string | null>(null);
 
+  const loadResultById = useCallback(async (id: string) => {
+    setIsSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/results/${id}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error("Failed to load result");
+
+      if (payload.algorithmResults && payload.algorithmResults.length > 0) {
+        const results = payload.algorithmResults.map((ar: any) => ({
+          algorithm: ar.algorithm_name,
+          title: ar.algorithm_name.replace("_", " ").toUpperCase(),
+          status: "success",
+          bestScore: ar.score.toLocaleString(),
+          rawScore: ar.score,
+          runtimeMs: `${Math.round(ar.time_took_to_find_best_sol * 1000)} ms`,
+          outputFile: ar.outputFile || "N/A",
+          note: `Placed ${ar.number_of_bays} bays`,
+          outputCsv: ar.outputCsv,
+        }));
+        results.sort((a: any, b: any) => (a.rawScore || 0) - (b.rawScore || 0));
+        setComparisonResults(results);
+        
+        // Auto-select best
+        const best = results[0];
+        setActiveLayoutCsv(best.outputCsv);
+        setSelectedAlgoName(best.algorithm);
+        setResult({ ...payload, csvInputs: {} }); // Note: inputs might be missing but layout will show
+      }
+    } catch (err) {
+      setError("Failed to sync shared layout.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, []);
+
   const setUploadFile = useCallback((field: RequiredCsvField, file: File | null) => {
     setUploadFiles((prev) => {
       if (!file) {
@@ -112,5 +148,6 @@ export function useSolver() {
     setSelectedAlgoName,
     submitRequest,
     setComparisonResults,
+    loadResultById,
   };
 }

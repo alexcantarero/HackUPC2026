@@ -8,6 +8,7 @@ export type SolveResponse = {
   bestScore: number | null;
   outputFileName: string | null;
   outputCsv: string | null;
+  resultId?: string | null;
   csvInputs: Partial<Record<RequiredCsvField, string>>;
   exitCode: number;
   durationMs: number;

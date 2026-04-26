@@ -40,7 +40,17 @@ export default function App() {
     setSelectedAlgoName,
     submitRequest,
     setComparisonResults,
+    loadResultById,
   } = useSolver();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const resultId = params.get("resultId");
+    if (resultId) {
+      loadResultById(resultId);
+      setShowIntro(false); // Skip intro if we are loading a specific shared result
+    }
+  }, [loadResultById]);
 
   const toggleGaps = useCallback(() => setShowGaps((prev) => !prev), []);
   const toggleSolverPanel = useCallback(() => {
@@ -135,7 +145,11 @@ export default function App() {
         <span className="intro-subtitle">CLICK TO START...</span>
       </div>
 
-      <ARQRDialog open={showARDialog} onClose={() => setShowARDialog(false)} />
+      <ARQRDialog 
+        open={showARDialog} 
+        onClose={() => setShowARDialog(false)} 
+        currentResultId={result?.resultId}
+      />
 
       <div className={showIntro ? 'gui-hidden' : ''}>
         <Topbar

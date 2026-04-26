@@ -2,14 +2,12 @@ import { Dialog, DialogContent, DialogTitle, IconButton } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { QRCodeSVG } from "qrcode.react";
 
-interface ARQRDialogProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-export default function ARQRDialog({ open, onClose }: ARQRDialogProps) {
+export default function ARQRDialog({ open, onClose, currentResultId }: { open: boolean, onClose: () => void, currentResultId?: string | null }) {
   // Automatically detect the origin (works for localhost, IP, or Tunnels)
-  const arUrl = typeof window !== 'undefined' ? window.location.origin : "";
+  let arUrl = typeof window !== 'undefined' ? window.location.origin : "";
+  if (currentResultId) {
+    arUrl += `?resultId=${currentResultId}`;
+  }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>

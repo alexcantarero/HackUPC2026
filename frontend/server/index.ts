@@ -30,6 +30,7 @@ type SolveResponse = {
   bestScore: number | null;
   outputFileName: string | null;
   outputCsv: string | null;
+  resultId: string | null;
   csvInputs: Record<RequiredField, string>;
   exitCode: number;
   durationMs: number;
@@ -48,6 +49,47 @@ app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+/**
+ * Fetch a specific result by ID (folder name)
+ */
+app.get("/api/results/:id", async (req, res) => {
+  const { id } = req.params;
+  const workspaceRoot = path.resolve(__dirname, "../..");
+  const resultDir = path.join(workspaceRoot, "data", "output", id);
+
+  try {
+    const filesInFolder = await fs.readdir(resultDir);
+    const algorithmResults = [];
+    
+    for (const file of filesInFolder) {
+      if (file.endsWith(".json")) {
+        const filePath = path.join(resultDir, file);
+        const jsonContent = await fs.readFile(filePath, "utf8");
+        const parsedJson = JSON.parse(jsonContent);
+        let csvContent = null;
+        const csvFile = file.replace(".json", ".csv");
+        if (filesInFolder.includes(csvFile)) {
+          csvContent = await fs.readFile(path.join(resultDir, csvFile), "utf8");
+        }
+
+        algorithmResults.push({
+          ...parsedJson,
+          outputFile: file,
+          outputCsv: csvContent
+        });
+      }
+    }
+    
+    res.json({
+      ok: true,
+      algorithmResults,
+      resultId: id
+    });
+  } catch (err) {
+    res.status(404).json({ ok: false, message: "Result not found" });
+  }
 });
 
 function parseBestScore(stdout: string): number | null {
@@ -165,26 +207,8 @@ app.post(
         });
       });
 
-      const payload: SolveResponse & { algorithmResults?: any[], debug?: string[] } = {
-        ok: runResult.exitCode === 0,
-        message:
-          runResult.exitCode === 0
-            ? "Solver finished successfully"
-            : "Solver finished with errors",
-        stdout: runResult.stdout,
-        stderr: runResult.stderr,
-        bestScore: parseBestScore(runResult.stdout),
-        outputFileName: null, // Will be overridden below if found
-        outputCsv: null,
-        csvInputs,
-        exitCode: runResult.exitCode,
-        durationMs: Date.now() - startedAt,
-        debug: []
-      };
-
       const logDebug = (msg: string) => {
         console.log(`[API] ${msg}`);
-        payload.debug?.push(msg);
       };
 
       // Discovery logic: Try regex first (robust version), fallback to newest folder in data/output
@@ -194,21 +218,16 @@ app.post(
       
       if (folderMatch && folderMatch[1]) {
         const rawFolderPath = folderMatch[1].trim();
-        // Try resolving relative to backendDir AND relative to workspaceRoot
         const path1 = path.resolve(backendDir, rawFolderPath);
         const path2 = path.resolve(workspaceRoot, rawFolderPath.replace(/^\.\.\//, ""));
-        
-        logDebug(`Regex match: ${rawFolderPath}`);
         
         try {
           await fs.access(path1);
           absoluteFolderPath = path1;
-          logDebug(`Path found at backend-relative: ${path1}`);
         } catch {
           try {
             await fs.access(path2);
             absoluteFolderPath = path2;
-            logDebug(`Path found at root-relative: ${path2}`);
           } catch {
             logDebug(`Regex paths not accessible: ${path1} OR ${path2}`);
           }
@@ -230,20 +249,34 @@ app.post(
               return { ...f, mtime: stat.mtimeMs };
             }));
             foldersWithTime.sort((a, b) => b.mtime - a.mtime);
-            
-            const newest = foldersWithTime[0];
-            absoluteFolderPath = newest.path;
-            logDebug(`Fallback found newest folder: ${absoluteFolderPath} (mtime: ${newest.mtime})`);
+            absoluteFolderPath = foldersWithTime[0].path;
           }
         } catch (err) {
           logDebug(`Fallback discovery failed: ${err}`);
         }
       }
 
+      const payload: SolveResponse & { algorithmResults?: any[], debug?: string[] } = {
+        ok: runResult.exitCode === 0,
+        message:
+          runResult.exitCode === 0
+            ? "Solver finished successfully"
+            : "Solver finished with errors",
+        stdout: runResult.stdout,
+        stderr: runResult.stderr,
+        bestScore: parseBestScore(runResult.stdout),
+        outputFileName: null,
+        outputCsv: null,
+        resultId: absoluteFolderPath ? path.basename(absoluteFolderPath) : null,
+        csvInputs,
+        exitCode: runResult.exitCode,
+        durationMs: Date.now() - startedAt,
+        debug: []
+      };
+
       if (absoluteFolderPath) {
         try {
           const filesInFolder = await fs.readdir(absoluteFolderPath);
-          logDebug(`Files in folder: ${filesInFolder.join(", ")}`);
           const algorithmResults = [];
 
           for (const file of filesInFolder) {
@@ -269,7 +302,6 @@ app.post(
             }
           }
           
-          logDebug(`Successfully parsed ${algorithmResults.length} results.`);
           payload.algorithmResults = algorithmResults;
           
           if (algorithmResults.length > 0) {
