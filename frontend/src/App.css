@@ -176,8 +176,8 @@ body {
     bottom: 24px;
     left: 16px;
     right: 16px;
-    width: auto; /* Full width minus margins */
-    height: 180px; 
+    width: auto; 
+    height: 230px; 
     padding: 0;
     overflow: hidden;
     z-index: 100; 
@@ -195,10 +195,10 @@ body {
   }
 
   .solver-comparison {
-    padding: 8px 12px;
+    padding: 10px 12px;
     gap: 12px;
     height: calc(100% - 32px);
-    display: flex; /* Switch to flex for horizontal scrolling */
+    display: flex;
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
@@ -206,35 +206,52 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Force cards to be consistent in the row */
   .solver-comparison-card {
-    flex: 0 0 160px; /* Fixed width for each card */
-    padding: 10px;
+    flex: 0 0 170px; 
+    padding: 12px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
     scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
   }
 
   .solver-comparison-card h3 {
     font-size: 0.7rem;
+    margin: 0 0 4px;
+    color: var(--accent-blue);
   }
 
   .solver-comparison-metrics {
-    gap: 12px;
+    gap: 8px;
+    margin: 6px 0;
+    padding: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
   }
 
   .solver-comparison-metrics span {
-    font-size: 0.4rem;
+    font-size: 0.45rem;
   }
 
   .solver-comparison-metrics strong {
-    font-size: 0.65rem;
+    font-size: 0.7rem;
+  }
+
+  .solver-comparison-note {
+    display: block !important;
+    font-size: 0.55rem;
+    line-height: 1.3;
+    margin: 4px 0 8px;
+    color: #cbd5e1;
+    white-space: normal;
   }
 
   .solver-view-layout-btn {
-    padding: 4px;
-    font-size: 0.5rem;
-    border-radius: 4px;
+    width: 100%;
+    padding: 8px;
+    font-size: 0.6rem;
+    margin-top: auto;
   }
 
   /* Mobile-specific UI changes */
