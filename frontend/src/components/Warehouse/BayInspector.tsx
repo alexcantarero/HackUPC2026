@@ -41,12 +41,11 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
   const isSmallScreen = size.width < 960;
   const offset = isSmallScreen ? 16 : 24;
   const panelWidth = isSmallScreen ? 170 : 180;
+  const panelHeight = isSmallScreen ? 60 : 75; // Approx height
 
-  // Anchor for the arrow should be at the top-left of the panel (relative to SVG)
-  // Our panel is at [size.width - offset - panelWidth, size.height - offset - height]
-  // Let's anchor it to the center of the top edge of the panel
+  // Anchor for the arrow should be at the top-center of the panel
   const startX = size.width - offset - (panelWidth / 2);
-  const startY = size.height - offset - 30; // Closer to top for shorter panel
+  const startY = size.height - offset - panelHeight;
 
   return (
     <Html fullscreen style={{ pointerEvents: "none" }}>
@@ -73,15 +72,29 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
               <polygon points="0 0, 10 3.5, 0 7" fill="#3a82f7" />
             </marker>
           </defs>
-          {/* L-Shaped Path: Horizontal then Vertical */}
-          <path
-            d={`M ${startX} ${startY} H ${screenPos.x} V ${screenPos.y}`}
-            fill="none"
-            stroke="#3a82f7"
-            strokeWidth="2"
-            strokeDasharray="5,5"
-            markerEnd="url(#arrowhead)"
-          />
+          
+          {/* Conditional Path: Straight on mobile, L-shaped on desktop */}
+          {isSmallScreen ? (
+            <line
+              x1={startX}
+              y1={startY}
+              x2={screenPos.x}
+              y2={screenPos.y}
+              stroke="#3a82f7"
+              strokeWidth="2"
+              strokeDasharray="5,5"
+              markerEnd="url(#arrowhead)"
+            />
+          ) : (
+            <path
+              d={`M ${startX} ${startY} H ${screenPos.x} V ${screenPos.y}`}
+              fill="none"
+              stroke="#3a82f7"
+              strokeWidth="2"
+              strokeDasharray="5,5"
+              markerEnd="url(#arrowhead)"
+            />
+          )}
         </svg>
       </div>
 
