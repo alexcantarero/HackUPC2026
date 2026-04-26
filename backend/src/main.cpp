@@ -37,14 +37,28 @@ struct Config {
     std::string caseDir  = "../data/input/Case0";
     std::string mode     = "parallel";   
     std::string algo     = "greedy";     
-    // We will parse GA params here as well!
-    int pop_size = 24;
-    int elite_count = 4;
-    int tournament_size = 3;
-    int immigrants = 2;
-    double swap_base = 0.25, swap_max = 0.55;
-    double scramble_base = 0.10, scramble_max = 0.35;
-    double replace_base = 0.15, replace_max = 0.40;
+    // Optional GA overrides from CLI (if *_set is true).
+    int pop_size = 0;
+    int elite_count = 0;
+    int tournament_size = 0;
+    int immigrants = 0;
+    double swap_base = 0.0, swap_max = 0.0;
+    double scramble_base = 0.0, scramble_max = 0.0;
+    double replace_base = 0.0, replace_max = 0.0;
+    double spatial_base = 0.0, spatial_max = 0.0;
+
+    bool pop_size_set = false;
+    bool elite_count_set = false;
+    bool tournament_size_set = false;
+    bool immigrants_set = false;
+    bool swap_base_set = false;
+    bool swap_max_set = false;
+    bool scramble_base_set = false;
+    bool scramble_max_set = false;
+    bool replace_base_set = false;
+    bool replace_max_set = false;
+    bool spatial_base_set = false;
+    bool spatial_max_set = false;
 };
 
 static Config parseArgs(int argc, char* argv[]) {
@@ -57,17 +71,19 @@ static Config parseArgs(int argc, char* argv[]) {
         if (arg == "--time"  && i + 1 < argc) g_time_limit_s = std::stod(argv[++i]);
         
         // Parse Optuna GA params
-        if (arg == "--pop_size" && i+1 < argc) cfg.pop_size = std::stoi(argv[++i]);
-        if (arg == "--elite_count" && i+1 < argc) cfg.elite_count = std::stoi(argv[++i]);
-        if (arg == "--tournament_size" && i+1 < argc) cfg.tournament_size = std::stoi(argv[++i]);
-        if (arg == "--immigrants" && i+1 < argc) cfg.immigrants = std::stoi(argv[++i]);
+        if (arg == "--pop_size" && i+1 < argc) { cfg.pop_size = std::stoi(argv[++i]); cfg.pop_size_set = true; }
+        if (arg == "--elite_count" && i+1 < argc) { cfg.elite_count = std::stoi(argv[++i]); cfg.elite_count_set = true; }
+        if (arg == "--tournament_size" && i+1 < argc) { cfg.tournament_size = std::stoi(argv[++i]); cfg.tournament_size_set = true; }
+        if (arg == "--immigrants" && i+1 < argc) { cfg.immigrants = std::stoi(argv[++i]); cfg.immigrants_set = true; }
         
-        if (arg == "--swap_base" && i+1 < argc) cfg.swap_base = std::stod(argv[++i]);
-        if (arg == "--swap_max" && i+1 < argc) cfg.swap_max = std::stod(argv[++i]);
-        if (arg == "--scramble_base" && i+1 < argc) cfg.scramble_base = std::stod(argv[++i]);
-        if (arg == "--scramble_max" && i+1 < argc) cfg.scramble_max = std::stod(argv[++i]);
-        if (arg == "--replace_base" && i+1 < argc) cfg.replace_base = std::stod(argv[++i]);
-        if (arg == "--replace_max" && i+1 < argc) cfg.replace_max = std::stod(argv[++i]);
+        if (arg == "--swap_base" && i+1 < argc) { cfg.swap_base = std::stod(argv[++i]); cfg.swap_base_set = true; }
+        if (arg == "--swap_max" && i+1 < argc) { cfg.swap_max = std::stod(argv[++i]); cfg.swap_max_set = true; }
+        if (arg == "--scramble_base" && i+1 < argc) { cfg.scramble_base = std::stod(argv[++i]); cfg.scramble_base_set = true; }
+        if (arg == "--scramble_max" && i+1 < argc) { cfg.scramble_max = std::stod(argv[++i]); cfg.scramble_max_set = true; }
+        if (arg == "--replace_base" && i+1 < argc) { cfg.replace_base = std::stod(argv[++i]); cfg.replace_base_set = true; }
+        if (arg == "--replace_max" && i+1 < argc) { cfg.replace_max = std::stod(argv[++i]); cfg.replace_max_set = true; }
+        if (arg == "--spatial_base" && i+1 < argc) { cfg.spatial_base = std::stod(argv[++i]); cfg.spatial_base_set = true; }
+        if (arg == "--spatial_max" && i+1 < argc) { cfg.spatial_max = std::stod(argv[++i]); cfg.spatial_max_set = true; }
     }
     return cfg;
 }
@@ -92,16 +108,55 @@ static std::unique_ptr<Algorithm> makeAlgorithm(
 
     if (algoName == "ga_ortho" || algoName == "ga_angle") {
         GeneticAlgorithm::GAParams ga_params;
-        ga_params.population_size = cfg.pop_size;
-        ga_params.elite_count = cfg.elite_count;
-        ga_params.tournament_size = cfg.tournament_size;
-        ga_params.immigrants_per_generation = cfg.immigrants;
-        ga_params.swap_rate_base = cfg.swap_base;
-        ga_params.swap_rate_max = std::max(cfg.swap_base, cfg.swap_max); // Prevent max < base
-        ga_params.scramble_rate_base = cfg.scramble_base;
-        ga_params.scramble_rate_max = std::max(cfg.scramble_base, cfg.scramble_max);
-        ga_params.replace_rate_base = cfg.replace_base;
-        ga_params.replace_rate_max = std::max(cfg.replace_base, cfg.replace_max);
+        if (algoName == "ga_ortho") {
+            // Tuned from multi-case HPO best result.
+            ga_params.population_size = 16;
+            ga_params.elite_count = 2;
+            ga_params.tournament_size = 8;
+            ga_params.immigrants_per_generation = 2;
+            ga_params.swap_rate_base = 0.22991921050127154;
+            ga_params.swap_rate_max = 0.22991921050127154;
+            ga_params.scramble_rate_base = 0.2741085782013291;
+            ga_params.scramble_rate_max = 0.2741085782013291;
+            ga_params.replace_rate_base = 0.27693061670556535;
+            ga_params.replace_rate_max = 0.2956168512770407;
+            ga_params.spatial_rate_base = 0.14241835822061896;
+            ga_params.spatial_rate_max = 0.6888434806466571;
+        } else {
+            // Educated default for continuous-angle search: slightly more exploration.
+            ga_params.population_size = 20;
+            ga_params.elite_count = 2;
+            ga_params.tournament_size = 8;
+            ga_params.immigrants_per_generation = 2;
+            ga_params.swap_rate_base = 0.23;
+            ga_params.swap_rate_max = 0.33;
+            ga_params.scramble_rate_base = 0.27;
+            ga_params.scramble_rate_max = 0.40;
+            ga_params.replace_rate_base = 0.28;
+            ga_params.replace_rate_max = 0.36;
+            ga_params.spatial_rate_base = 0.20;
+            ga_params.spatial_rate_max = 0.80;
+        }
+
+        if (cfg.pop_size_set) ga_params.population_size = cfg.pop_size;
+        if (cfg.elite_count_set) ga_params.elite_count = cfg.elite_count;
+        if (cfg.tournament_size_set) ga_params.tournament_size = cfg.tournament_size;
+        if (cfg.immigrants_set) ga_params.immigrants_per_generation = cfg.immigrants;
+
+        if (cfg.swap_base_set) ga_params.swap_rate_base = cfg.swap_base;
+        if (cfg.swap_max_set) ga_params.swap_rate_max = cfg.swap_max;
+        if (cfg.scramble_base_set) ga_params.scramble_rate_base = cfg.scramble_base;
+        if (cfg.scramble_max_set) ga_params.scramble_rate_max = cfg.scramble_max;
+        if (cfg.replace_base_set) ga_params.replace_rate_base = cfg.replace_base;
+        if (cfg.replace_max_set) ga_params.replace_rate_max = cfg.replace_max;
+        if (cfg.spatial_base_set) ga_params.spatial_rate_base = cfg.spatial_base;
+        if (cfg.spatial_max_set) ga_params.spatial_rate_max = cfg.spatial_max;
+
+        // Keep adaptive ranges valid even if user passes max < base.
+        ga_params.swap_rate_max = std::max(ga_params.swap_rate_base, ga_params.swap_rate_max);
+        ga_params.scramble_rate_max = std::max(ga_params.scramble_rate_base, ga_params.scramble_rate_max);
+        ga_params.replace_rate_max = std::max(ga_params.replace_rate_base, ga_params.replace_rate_max);
+        ga_params.spatial_rate_max = std::max(ga_params.spatial_rate_base, ga_params.spatial_rate_max);
         
         std::unique_ptr<GeneticAlgorithm> ga;
         if (algoName == "ga_ortho") ga = std::make_unique<GAOrtho>(info, seed);
