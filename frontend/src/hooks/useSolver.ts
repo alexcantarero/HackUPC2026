@@ -38,7 +38,7 @@ export function useSolver() {
         const best = results[0];
         setActiveLayoutCsv(best.outputCsv);
         setSelectedAlgoName(best.algorithm);
-        setResult({ ...payload, csvInputs: {} }); // Note: inputs might be missing but layout will show
+        setResult(payload); // Now includes full csvInputs
       }
     } catch (err) {
       setError("Failed to sync shared layout.");

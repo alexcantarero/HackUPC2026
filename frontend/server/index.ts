@@ -62,7 +62,16 @@ app.get("/api/results/:id", async (req, res) => {
   try {
     const filesInFolder = await fs.readdir(resultDir);
     const algorithmResults = [];
+    const csvInputs: any = {};
     
+    // Load persisted inputs
+    for (const field of requiredFileFields) {
+      const inputFile = `input_${field}.csv`;
+      if (filesInFolder.includes(inputFile)) {
+        csvInputs[field] = await fs.readFile(path.join(resultDir, inputFile), "utf8");
+      }
+    }
+
     for (const file of filesInFolder) {
       if (file.endsWith(".json")) {
         const filePath = path.join(resultDir, file);
@@ -85,6 +94,7 @@ app.get("/api/results/:id", async (req, res) => {
     res.json({
       ok: true,
       algorithmResults,
+      csvInputs,
       resultId: id
     });
   } catch (err) {
@@ -276,6 +286,13 @@ app.post(
 
       if (absoluteFolderPath) {
         try {
+          // Copy original inputs to the output folder so they can be synced to other devices
+          for (const field of requiredFileFields) {
+            const source = path.join(caseDir, `${field}.csv`);
+            const target = path.join(absoluteFolderPath, `input_${field}.csv`);
+            await fs.copyFile(source, target);
+          }
+
           const filesInFolder = await fs.readdir(absoluteFolderPath);
           const algorithmResults = [];
 
