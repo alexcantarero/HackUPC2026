@@ -37,8 +37,16 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
 
   if (!selectedBay || !screenPos) return null;
 
-  const startX = size.width - 130;
-  const startY = size.height - 70;
+  // Use 16px offset for mobile, 24px for desktop
+  const isSmallScreen = size.width < 600;
+  const offset = isSmallScreen ? 16 : 24;
+  const panelWidth = isSmallScreen ? 160 : 180;
+
+  // Anchor for the arrow should be at the top-left of the panel (relative to SVG)
+  // Our panel is at [size.width - offset - panelWidth, size.height - offset - height]
+  // Let's anchor it to the center of the top edge of the panel
+  const startX = size.width - offset - (panelWidth / 2);
+  const startY = size.height - offset - 40; // Roughly the vertical center of the small panel
 
   return (
     <Html fullscreen style={{ pointerEvents: "none" }}>
@@ -58,14 +66,14 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
               id="arrowhead"
               markerWidth="10"
               markerHeight="7"
-              refX="10" // Put tip at the very end
+              refX="10" 
               refY="3.5"
               orient="auto"
             >
               <polygon points="0 0, 10 3.5, 0 7" fill="#3a82f7" />
             </marker>
           </defs>
-          {/* L-Shaped Path: Horizontal then Vertical (Down-then-Right from Bay perspective) */}
+          {/* L-Shaped Path: Horizontal then Vertical */}
           <path
             d={`M ${startX} ${startY} H ${screenPos.x} V ${screenPos.y}`}
             fill="none"
@@ -82,16 +90,16 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
         <div className="solver-comparison-card" style={{ border: "none", background: "none", padding: 0 }}>
           <div className="solver-comparison-metrics" style={{ flexDirection: "column", gap: "6px", background: "none", padding: 0, margin: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: "0.6rem" }}>ID</span>
-              <strong style={{ fontSize: "0.9rem" }}>#{selectedBay.id}</strong>
+              <span style={{ fontSize: "0.55rem" }}>ID</span>
+              <strong style={{ fontSize: "0.85rem" }}>#{selectedBay.id}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: "0.6rem" }}>LOADS</span>
-              <strong style={{ color: "#ffffff", fontSize: "0.85rem" }}>{selectedBay.nLoads}</strong>
+              <span style={{ fontSize: "0.55rem" }}>LOADS</span>
+              <strong style={{ color: "#ffffff", fontSize: "0.8rem" }}>{selectedBay.nLoads}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: "0.6rem" }}>PRICE</span>
-              <strong style={{ color: "#ed8200", fontSize: "0.85rem" }}>{selectedBay.price}€</strong>
+              <span style={{ fontSize: "0.55rem" }}>PRICE</span>
+              <strong style={{ color: "#ed8200", fontSize: "0.8rem" }}>{selectedBay.price}€</strong>
             </div>
           </div>
         </div>
@@ -100,11 +108,11 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
       <style>{`
         .bay-inspector-panel {
           position: absolute;
-          bottom: 24px;
-          right: 24px;
+          bottom: ${offset}px;
+          right: ${offset}px;
           top: auto;
-          width: 180px;
-          padding: 12px 16px;
+          width: ${panelWidth}px;
+          padding: 10px 12px;
           animation: panelSlideUp 0.15s ease-out;
         }
         @keyframes panelSlideUp {
