@@ -41,7 +41,7 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
   const isSmallScreen = size.width < 960;
   const offset = isSmallScreen ? 16 : 24;
   const panelWidth = isSmallScreen ? 170 : 180;
-  const panelHeight = isSmallScreen ? 120 : 75; // Symmetrical height
+  const panelHeight = isSmallScreen ? 160 : 75; // Symmetrical height
 
   // Anchor for the arrow should be at the top-center of the panel
   const startX = size.width - offset - (panelWidth / 2);

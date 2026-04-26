@@ -177,10 +177,10 @@ body {
     left: 16px;
     right: auto;
     width: 170px; 
-    height: 120px; /* Fixed height for symmetry */
+    height: 160px; /* Increased height */
     padding: 0;
     overflow: hidden;
-    z-index: 60; /* Higher than the SVG arrow layer */
+    z-index: 60; 
   }
 
   .solver-results-panel .solver-panel-header {
@@ -194,9 +194,11 @@ body {
 
   .solver-comparison {
     padding: 6px;
-    gap: 0;
-    height: calc(100% - 30px);
+    gap: 4px;
+    height: calc(100% - 28px);
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
   }
 
   .solver-comparison-card {
