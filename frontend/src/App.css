@@ -171,12 +171,66 @@ body {
 .solver-error { margin-top: 12px; color: #f87171; font-size: 0.75rem; }
 
 @media (max-width: 960px) {
-  .solver-panel, .solver-results-panel { width: calc(100vw - 48px); left: 24px; right: 24px; }
-  .intro-title { font-size: 2.5rem; letter-spacing: 6px; }
-  .intro-subtitle { font-size: 0.9rem; letter-spacing: 3px; }
-  
+  .solver-results-panel { 
+    top: auto;
+    bottom: 16px;
+    left: 16px;
+    right: auto;
+    width: 170px; /* Symmetrical with inspector */
+    max-height: 200px;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .solver-results-panel .solver-panel-header {
+    padding: 10px 12px 6px;
+  }
+
+  .solver-results-panel .solver-panel-header h2 {
+    font-size: 0.6rem;
+  }
+
+  .solver-comparison {
+    padding: 0 8px 10px;
+    gap: 8px;
+  }
+
+  .solver-comparison-card {
+    padding: 8px;
+    border-radius: 8px;
+  }
+
+  .solver-comparison-card h3 {
+    font-size: 0.7rem;
+    margin-bottom: 6px;
+  }
+
+  .solver-comparison-metrics {
+    gap: 12px;
+    margin: 6px 0;
+    padding: 6px;
+    border-radius: 4px;
+  }
+
+  .solver-comparison-metrics span {
+    font-size: 0.45rem;
+  }
+
+  .solver-comparison-metrics strong {
+    font-size: 0.75rem;
+  }
+
+  .solver-comparison-note {
+    display: none; /* Hide note on mobile to save space */
+  }
+
+  .solver-view-layout-btn {
+    padding: 6px;
+    font-size: 0.6rem;
+  }
+
   /* Mobile-specific UI changes */
-  .leading-tooltip, .solver-secondary, .MuiButton-root:has(svg[data-testid="FileUploadIcon"]) {
+  .leading-tooltip, .solver-secondary, .MuiButton-root:has(svg[data-testid="FileUploadIcon"]), .MuiButton-root:has(svg[data-testid="QrCodeIcon"]) {
     display: none !important;
   }
   
@@ -185,5 +239,6 @@ body {
     left: 50%;
     transform: translateX(-50%);
     justify-content: center;
+    top: 16px;
   }
 }

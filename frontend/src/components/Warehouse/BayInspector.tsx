@@ -38,15 +38,15 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
   if (!selectedBay || !screenPos) return null;
 
   // Use 16px offset for mobile, 24px for desktop
-  const isSmallScreen = size.width < 600;
+  const isSmallScreen = size.width < 960;
   const offset = isSmallScreen ? 16 : 24;
-  const panelWidth = isSmallScreen ? 160 : 180;
+  const panelWidth = isSmallScreen ? 170 : 180;
 
   // Anchor for the arrow should be at the top-left of the panel (relative to SVG)
   // Our panel is at [size.width - offset - panelWidth, size.height - offset - height]
   // Let's anchor it to the center of the top edge of the panel
   const startX = size.width - offset - (panelWidth / 2);
-  const startY = size.height - offset - 40; // Roughly the vertical center of the small panel
+  const startY = size.height - offset - 30; // Closer to top for shorter panel
 
   return (
     <Html fullscreen style={{ pointerEvents: "none" }}>
