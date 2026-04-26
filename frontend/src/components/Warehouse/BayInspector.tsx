@@ -58,8 +58,8 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
             </marker>
           </defs>
           <line
-            x1={size.width - 130} // Centered on the new 220px panel
-            y1={size.height - 90}
+            x1={size.width - 130} // Centered on the 220px panel
+            y1={size.height - 70} // Adjusted for shorter panel
             x2={screenPos.x}
             y2={screenPos.y}
             stroke="#3a82f7"
@@ -72,22 +72,19 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
 
       {/* The Panel (Screen Space) */}
       <div className="solver-panel bay-inspector-panel" style={{ pointerEvents: "auto" }}>
-        <div className="solver-panel-header" style={{ marginBottom: "12px" }}>
-          <h2 style={{ fontSize: "0.7rem" }}>Bay Details</h2>
-        </div>
         <div className="solver-comparison-card" style={{ border: "none", background: "none", padding: 0 }}>
-          <div className="solver-comparison-metrics" style={{ flexDirection: "column", gap: "8px", background: "none", padding: 0 }}>
+          <div className="solver-comparison-metrics" style={{ flexDirection: "column", gap: "6px", background: "none", padding: 0, margin: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span>ID</span>
-              <strong style={{ fontSize: "1rem" }}>#{selectedBay.id}</strong>
+              <span style={{ fontSize: "0.6rem" }}>ID</span>
+              <strong style={{ fontSize: "0.9rem" }}>#{selectedBay.id}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span>Loads</span>
+              <span style={{ fontSize: "0.6rem" }}>LOADS</span>
               <strong style={{ color: "#ffffff", fontSize: "0.85rem" }}>{selectedBay.nLoads}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span>Price</span>
-              <strong style={{ color: "#ed8200", fontSize: "0.85rem" }}>{selectedBay.price} €</strong>
+              <span style={{ fontSize: "0.6rem" }}>PRICE</span>
+              <strong style={{ color: "#ed8200", fontSize: "0.85rem" }}>{selectedBay.price}€</strong>
             </div>
           </div>
         </div>
@@ -99,13 +96,13 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
           bottom: 24px;
           right: 24px;
           top: auto;
-          width: 220px;
-          padding: 16px;
-          animation: panelSlideUp 0.2s ease-out;
+          width: 180px;
+          padding: 12px 16px;
+          animation: panelSlideUp 0.15s ease-out;
         }
         @keyframes panelSlideUp {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
         }
       `}</style>
     </Html>

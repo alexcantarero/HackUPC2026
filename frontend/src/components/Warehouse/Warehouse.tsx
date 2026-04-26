@@ -41,7 +41,7 @@ export default function Warehouse({ layoutData, bayData, warehouseCenter, showGa
             key={`bay-${item.id}-${index}`}
             position={[anchorX, FLOOR_Y, anchorZ]}
             rotation={[0, rotationY, 0]}
-            onPointerOver={(e) => {
+            onClick={(e) => {
               e.stopPropagation();
               onSelectBay({
                 id: item.id,
