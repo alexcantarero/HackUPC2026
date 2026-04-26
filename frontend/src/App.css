@@ -196,20 +196,23 @@ body {
 
   .solver-comparison {
     padding: 8px 12px;
-    gap: 8px;
+    gap: 12px;
     height: calc(100% - 32px);
-    display: grid;
-    grid-template-columns: repeat(2, 1fr); /* Two cards side-by-side if they fit */
+    display: flex; /* Switch to flex for horizontal scrolling */
+    flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
   }
 
-  /* Force cards to be consistent in the grid */
+  /* Force cards to be consistent in the row */
   .solver-comparison-card {
-    min-width: 140px;
+    flex: 0 0 160px; /* Fixed width for each card */
     padding: 10px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
+    scroll-snap-align: start;
   }
 
   .solver-comparison-card h3 {
