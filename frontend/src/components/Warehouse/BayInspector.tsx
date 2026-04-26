@@ -65,9 +65,9 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
               <polygon points="0 0, 10 3.5, 0 7" fill="#3a82f7" />
             </marker>
           </defs>
-          {/* L-Shaped Path: Vertical then Horizontal */}
+          {/* L-Shaped Path: Horizontal then Vertical (Down-then-Right from Bay perspective) */}
           <path
-            d={`M ${startX} ${startY} V ${screenPos.y} H ${screenPos.x}`}
+            d={`M ${startX} ${startY} H ${screenPos.x} V ${screenPos.y}`}
             fill="none"
             stroke="#3a82f7"
             strokeWidth="2"
