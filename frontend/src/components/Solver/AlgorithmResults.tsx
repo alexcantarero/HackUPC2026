@@ -15,6 +15,8 @@ export default function AlgorithmResults({
 }: AlgorithmResultsProps) {
   if (results.length === 0) return null;
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 960;
+
   return (
     <div
       className="solver-results-panel"
@@ -23,13 +25,15 @@ export default function AlgorithmResults({
     >
       <div className="solver-panel-header">
         <h2>Algorithm Results</h2>
-        <button
-          className="solver-close"
-          onClick={onClear}
-          title="Clear results"
-        >
-          ×
-        </button>
+        {!isMobile && (
+          <button
+            className="solver-close"
+            onClick={onClear}
+            title="Clear results"
+          >
+            ×
+          </button>
+        )}
       </div>
       <div className="solver-comparison" aria-label="Algorithm run summaries">
         {results.map((result, idx) => (
