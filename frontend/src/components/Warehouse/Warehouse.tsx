@@ -9,11 +9,12 @@ interface WarehouseProps {
   bayData: Record<number, BayType>;
   warehouseCenter: WarehouseCenter;
   showGaps: boolean;
+  onSelectBay: (bayInfo: { id: number; nLoads: number; price: number; position: [number, number, number] } | null) => void;
 }
 
-export default function Warehouse({ layoutData, bayData, warehouseCenter, showGaps }: WarehouseProps) {
+export default function Warehouse({ layoutData, bayData, warehouseCenter, showGaps, onSelectBay }: WarehouseProps) {
   return (
-    <group>
+    <group onPointerMissed={() => onSelectBay(null)}>
       {layoutData.map((item, index) => {
         const bay = bayData[item.id];
         if (!bay) return null;
@@ -28,11 +29,27 @@ export default function Warehouse({ layoutData, bayData, warehouseCenter, showGa
         const hue = 40 + (item.id * 137.5) % 300;
         const color = `hsl(${hue}, 85%, 45%)`;
 
+        // Calculate dead center for the arrow
+        // anchorX, anchorZ is bottom-left (before rotation).
+        // The center is width/2, height/2, -depth/2 (local).
+        const center = new THREE.Vector3(boxWidth / 2, boxHeight / 2, -boxDepth / 2)
+          .applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationY)
+          .add(new THREE.Vector3(anchorX, FLOOR_Y, anchorZ));
+
         return (
           <group
             key={`bay-${item.id}-${index}`}
             position={[anchorX, FLOOR_Y, anchorZ]}
             rotation={[0, rotationY, 0]}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectBay({
+                id: item.id,
+                nLoads: bay.nLoads,
+                price: bay.price,
+                position: [center.x, center.y, center.z]
+              });
+            }}
           >
             <ProceduralShelf
               width={boxWidth}

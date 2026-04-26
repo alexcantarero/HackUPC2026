@@ -3,20 +3,22 @@ export function parseBaysCsv(csvString: string) {
   const lines = csvString.trim().split("\n");
   const data: Record<
     number,
-    { width: number; depth: number; height: number; gap: number }
+    { width: number; depth: number; height: number; gap: number; nLoads: number; price: number }
   > = {};
 
   for (let i = 0; i < lines.length; i++) {
     const cols = lines[i].split(",").map((s) => Number(s.trim()));
     if (
-      cols.length >= 5 &&
-      cols.slice(0, 5).every((value) => Number.isFinite(value))
+      cols.length >= 7 &&
+      cols.slice(0, 7).every((value) => Number.isFinite(value))
     ) {
       data[cols[0]] = {
         width: cols[1],
         depth: cols[2],
         height: cols[3],
         gap: cols[4],
+        nLoads: cols[5],
+        price: cols[6],
       };
     }
   }

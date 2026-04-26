@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { CameraControls } from "@react-three/drei";
 import FadingDollhouseElement from "../FadingDollhouseElement";
 import Warehouse from "./Warehouse";
+import BayInspector from "./BayInspector";
 import { FLOOR_Y } from "../../scene/buildSceneGeometry";
 import type { SceneGeometry, WarehouseLayoutItem, BayType, WarehouseCenter } from "../../types/warehouse";
 
@@ -12,6 +13,8 @@ interface WarehouseSceneProps {
   bayData: Record<number, BayType>;
   warehouseCenter: WarehouseCenter;
   showGaps: boolean;
+  selectedBay: { id: number; nLoads: number; price: number; position: [number, number, number] } | null;
+  onSelectBay: (bay: { id: number; nLoads: number; price: number; position: [number, number, number] } | null) => void;
   lightRef: React.RefObject<THREE.DirectionalLight | null>;
   meshRef: React.RefObject<THREE.Mesh | null>;
   cameraControlsRef: React.RefObject<CameraControls | null>;
@@ -23,12 +26,15 @@ export default function WarehouseScene({
   bayData,
   warehouseCenter,
   showGaps,
+  selectedBay,
+  onSelectBay,
   lightRef,
   meshRef,
   cameraControlsRef,
 }: WarehouseSceneProps) {
   return (
     <Suspense fallback={null}>
+      <BayInspector selectedBay={selectedBay} />
       <color attach="background" args={["#7e7e7e"]} />
       <directionalLight ref={lightRef} position={[0, 5, 5]} intensity={5} />
       <ambientLight intensity={3} />
@@ -84,6 +90,7 @@ export default function WarehouseScene({
         bayData={bayData}
         warehouseCenter={warehouseCenter}
         showGaps={showGaps}
+        onSelectBay={onSelectBay}
       />
 
       <CameraControls ref={cameraControlsRef} makeDefault />

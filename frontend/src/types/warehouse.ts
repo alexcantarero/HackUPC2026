@@ -12,6 +12,8 @@ export interface BayType {
   depth: number;
   height: number;
   gap: number;
+  nLoads: number;
+  price: number;
 }
 
 export interface WarehouseCenter {

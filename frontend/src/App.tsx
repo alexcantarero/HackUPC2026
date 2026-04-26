@@ -24,6 +24,7 @@ export default function App() {
   const [showGaps, setShowGaps] = useState(false);
   const [showSolverPanel, setShowSolverPanel] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
+  const [selectedBay, setSelectedBay] = useState<{ id: number; nLoads: number; price: number; position: [number, number, number] } | null>(null);
 
   const {
     setUploadFile,
@@ -175,6 +176,8 @@ export default function App() {
             bayData={bayData}
             warehouseCenter={warehouseCenter}
             showGaps={showGaps}
+            selectedBay={selectedBay}
+            onSelectBay={setSelectedBay}
             lightRef={lightRef}
             meshRef={meshRef}
             cameraControlsRef={cameraControlsRef}
