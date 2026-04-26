@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as THREE from "three";
 import { useThree, useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
@@ -16,7 +16,12 @@ interface BayInspectorProps {
 
 export default function BayInspector({ selectedBay }: BayInspectorProps) {
   const { camera, size } = useThree();
-  const [screenPos, setScreenPos] = useState({ x: 0, y: 0 });
+  const [screenPos, setScreenPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Fix flicker: Clear position immediately when the selected bay changes
+  useEffect(() => {
+    setScreenPos(null);
+  }, [selectedBay?.id]);
 
   useFrame(() => {
     if (!selectedBay) return;
@@ -30,7 +35,10 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
     setScreenPos({ x, y });
   });
 
-  if (!selectedBay) return null;
+  if (!selectedBay || !screenPos) return null;
+
+  const startX = size.width - 130;
+  const startY = size.height - 70;
 
   return (
     <Html fullscreen style={{ pointerEvents: "none" }}>
@@ -50,18 +58,17 @@ export default function BayInspector({ selectedBay }: BayInspectorProps) {
               id="arrowhead"
               markerWidth="10"
               markerHeight="7"
-              refX="0"
+              refX="10" // Put tip at the very end
               refY="3.5"
               orient="auto"
             >
               <polygon points="0 0, 10 3.5, 0 7" fill="#3a82f7" />
             </marker>
           </defs>
-          <line
-            x1={size.width - 130} // Centered on the 220px panel
-            y1={size.height - 70} // Adjusted for shorter panel
-            x2={screenPos.x}
-            y2={screenPos.y}
+          {/* L-Shaped Path: Vertical then Horizontal */}
+          <path
+            d={`M ${startX} ${startY} V ${screenPos.y} H ${screenPos.x}`}
+            fill="none"
             stroke="#3a82f7"
             strokeWidth="2"
             strokeDasharray="5,5"
