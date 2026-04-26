@@ -85,17 +85,29 @@ if [ $READY -eq 1 ]; then
         read -t 1 -n 1 key
         if [[ $key == "t" ]]; then
             echo -e "\n${GREEN}Starting Cloudflare Tunnel (via npx)...${NC}"
-            npx cloudflared tunnel --url http://localhost:5173 > tunnel.log 2>&1 &
+            # Use --yes to skip installation prompt and --url to specify local server
+            npx --yes cloudflared tunnel --url http://localhost:5173 > tunnel.log 2>&1 &
             TUNNEL_PID=$!
-            echo -e "${BLUE}Waiting for tunnel URL (this can take ~10s)...${NC}"
-            sleep 10
-            TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" tunnel.log | head -n 1)
+            
+            echo -e "${BLUE}Waiting for tunnel URL...${NC}"
+            TUNNEL_URL=""
+            for i in {1..30}; do
+                echo -n "."
+                TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" tunnel.log | head -n 1)
+                if [ -n "$TUNNEL_URL" ]; then
+                    break
+                fi
+                sleep 1
+            done
+            echo ""
+
             if [ -n "$TUNNEL_URL" ]; then
                 echo -e "${GREEN}  TUNNEL READY!${NC}"
                 echo -e "${BLUE}  Public URL: ${NC}${ORANGE}${TUNNEL_URL}${NC}"
                 echo -e "${ORANGE}  Scan the QR code on the website now!${NC}"
             else
-                echo -e "${RED}  Failed to get tunnel URL. Check tunnel.log${NC}"
+                echo -e "${RED}  Failed to get tunnel URL after 30s. Check tunnel.log${NC}"
+                # Keep the process running in case it's still starting, but notify user
             fi
         fi
     done
