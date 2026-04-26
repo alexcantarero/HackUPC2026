@@ -32,6 +32,7 @@ body {
   top: 0;
   left: 0;
   transition: filter 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  touch-action: none; /* Prevents browser scroll during 3D interaction */
 }
 
 .canvas-container.blurred {

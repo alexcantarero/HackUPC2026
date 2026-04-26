@@ -96,17 +96,9 @@ export default function WarehouseScene({
       <CameraControls 
         ref={cameraControlsRef} 
         makeDefault 
-        touches={{
-          one: 32,  // ROTATE
-          two: 512, // TOUCH_ZOOM_PAN
-          three: 0
-        }}
-        mouseButtons={{
-          left: 1,   // ROTATE
-          middle: 8, // DOLLY
-          right: 2,  // PAN
-          wheel: 8,  // DOLLY
-        }}
+        dollyToCursor={true}
+        minDistance={2}
+        maxDistance={500}
       />
     </Suspense>
   );
