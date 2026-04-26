@@ -10,6 +10,7 @@ import WarehouseScene from "./components/Warehouse/WarehouseScene";
 import SolverLoader from "./components/Loader/SolverLoader";
 import SolverPanel from "./components/Solver/SolverPanel";
 import AlgorithmResults from "./components/Solver/AlgorithmResults";
+import ARQRDialog from "./components/AR/ARQRDialog";
 
 import { useSolver } from "./hooks/useSolver";
 import { WELCOME_WAREHOUSE, WELCOME_CEILING, WELCOME_OBSTACLES, WELCOME_BAYS, WELCOME_LAYOUT } from "./constants/welcomeData";
@@ -24,6 +25,7 @@ export default function App() {
   const [showGaps, setShowGaps] = useState(false);
   const [showSolverPanel, setShowSolverPanel] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
+  const [showARDialog, setShowARDialog] = useState(false);
   const [selectedBay, setSelectedBay] = useState<{ id: number; nLoads: number; price: number; position: [number, number, number] } | null>(null);
 
   const {
@@ -45,6 +47,10 @@ export default function App() {
     if (isSubmitting) return;
     setShowSolverPanel((prev) => !prev);
   }, [isSubmitting]);
+
+  const toggleARDialog = useCallback(() => {
+    setShowARDialog((prev) => !prev);
+  }, []);
 
   const setTopView = useCallback(() => {
     cameraControlsRef.current?.setLookAt(0, 150, 0, 0, -2, 0, true);
@@ -129,12 +135,16 @@ export default function App() {
         <span className="intro-subtitle">CLICK TO START...</span>
       </div>
 
+      <ARQRDialog open={showARDialog} onClose={() => setShowARDialog(false)} />
+
       <div className={showIntro ? 'gui-hidden' : ''}>
         <Topbar
           onToggleCameraView={toggleCameraView}
           onToggleGaps={toggleGaps}
           onOpenSolverPanel={toggleSolverPanel}
+          onToggleAR={toggleARDialog}
           showGaps={showGaps}
+          showAR={showARDialog}
         />
       </div>
 

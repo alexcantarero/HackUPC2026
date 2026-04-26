@@ -298,6 +298,6 @@ app.post(
   },
 );
 
-app.listen(port, () => {
-  console.log(`Solver API listening on http://localhost:${port}`);
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Solver API listening on http://0.0.0.0:${port}`);
 });

@@ -174,4 +174,16 @@ body {
   .solver-panel, .solver-results-panel { width: calc(100vw - 48px); left: 24px; right: 24px; }
   .intro-title { font-size: 2.5rem; letter-spacing: 6px; }
   .intro-subtitle { font-size: 0.9rem; letter-spacing: 3px; }
+  
+  /* Mobile-specific UI changes */
+  .leading-tooltip, .solver-secondary, .MuiButton-root:has(svg[data-testid="FileUploadIcon"]) {
+    display: none !important;
+  }
+  
+  .topbar {
+    width: fit-content;
+    left: 50%;
+    transform: translateX(-50%);
+    justify-content: center;
+  }
 }

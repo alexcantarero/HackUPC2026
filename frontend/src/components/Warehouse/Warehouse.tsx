@@ -13,6 +13,8 @@ interface WarehouseProps {
 }
 
 export default function Warehouse({ layoutData, bayData, warehouseCenter, showGaps, onSelectBay }: WarehouseProps) {
+  const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window;
+
   return (
     <group onPointerMissed={() => onSelectBay(null)}>
       {layoutData.map((item, index) => {
@@ -30,8 +32,6 @@ export default function Warehouse({ layoutData, bayData, warehouseCenter, showGa
         const color = `hsl(${hue}, 85%, 45%)`;
 
         // Calculate dead center for the arrow
-        // anchorX, anchorZ is bottom-left (before rotation).
-        // The center is width/2, height/2, -depth/2 (local).
         const center = new THREE.Vector3(boxWidth / 2, boxHeight / 2, -boxDepth / 2)
           .applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationY)
           .add(new THREE.Vector3(anchorX, FLOOR_Y, anchorZ));
@@ -51,7 +51,7 @@ export default function Warehouse({ layoutData, bayData, warehouseCenter, showGa
               });
             }}
             onPointerOut={() => {
-              onSelectBay(null);
+              if (!isMobile) onSelectBay(null);
             }}
           >
             <ProceduralShelf

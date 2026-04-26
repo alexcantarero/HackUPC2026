@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# --- Mecalux Warehouse Optimizer: Robust Startup ---
+# --- Mecalux Warehouse Optimizer: Robust Startup & Tunneling ---
 
 # 1. Setup
 BLUE='\033[0;34m'
@@ -23,7 +23,7 @@ fi
 
 # 3. Install Frontend dependencies if needed
 if [ ! -d "frontend/node_modules" ]; then
-    echo -e "${ORANGE}Installing frontend dependencies (this may take a minute)...${NC}"
+    echo -e "${ORANGE}Installing frontend dependencies...${NC}"
     (cd frontend && npm install)
 fi
 
@@ -32,20 +32,20 @@ echo -e "${GREEN}Initializing servers...${NC}"
 cd frontend
 
 # Remove old logs
-rm -f api.log web.log
+rm -f api.log web.log tunnel.log
 
-# Launch API
+# Launch API (Listening on all interfaces)
 npm run api > api.log 2>&1 &
 API_PID=$!
 
-# Launch Vite
+# Launch Vite (Listening on all interfaces)
 npm run dev -- --host > web.log 2>&1 &
 VITE_PID=$!
 
 # 5. Wait for readiness
-echo -e "${BLUE}Waiting for ports to open...${NC}"
+echo -e "${BLUE}Waiting for servers to wake up...${NC}"
 READY=0
-for i in {1..20}; do
+for i in {1..15}; do
     if grep -q "Local:" web.log || grep -q "Network:" web.log; then
         READY=1
         break
@@ -56,28 +56,53 @@ done
 echo ""
 
 if [ $READY -eq 1 ]; then
-    # Extract the local IP address for the user
+    # Detect the most likely Hotspot IP (usually 172.20.10.x)
     LOCAL_IP=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | head -n 1)
+    HOTSPOT_IP=$(ip addr show | grep '172.20.10.' | awk '{print $2}' | cut -d/ -f1 | head -n 1)
     
+    DISPLAY_IP=${HOTSPOT_IP:-$LOCAL_IP}
+
     echo -e "\n${BLUE}--------------------------------------------------${NC}"
     echo -e "${GREEN}  APPLICATION READY!${NC}"
     echo -e "${BLUE}  Local:   ${NC}${ORANGE}http://localhost:5173${NC}"
-    echo -e "${BLUE}  Network: ${NC}${ORANGE}http://${LOCAL_IP}:5173${NC}"
+    echo -e "${BLUE}  Hotspot: ${NC}${ORANGE}http://${DISPLAY_IP}:5173${NC}"
     echo -e "${BLUE}--------------------------------------------------${NC}"
-    echo -e "Press Ctrl+C to stop both servers."
+    
+    # 6. Optional Tunnel (Bypasses Firewalls/Hotspot issues)
+    echo -e "${ORANGE}Tip: If the IP above doesn't work on your phone,${NC}"
+    echo -e "${ORANGE}     press 't' to start a public Cloudflare Tunnel.${NC}"
+    echo -e "Press Ctrl+C to stop everything."
+
+    # Handle input for tunnel
+    cleanup() {
+        echo -e "\n${BLUE}Shutting down...${NC}"
+        kill $API_PID $VITE_PID $TUNNEL_PID 2>/dev/null
+        exit
+    }
+    trap cleanup SIGINT SIGTERM
+
+    while true; do
+        read -t 1 -n 1 key
+        if [[ $key == "t" ]]; then
+            echo -e "\n${GREEN}Starting Cloudflare Tunnel (via npx)...${NC}"
+            npx cloudflared tunnel --url http://localhost:5173 > tunnel.log 2>&1 &
+            TUNNEL_PID=$!
+            echo -e "${BLUE}Waiting for tunnel URL...${NC}"
+            sleep 5
+            TUNNEL_URL=$(grep -o 'https://[-a-z0-9.]*\.trycloudflare.com' tunnel.log | head -n 1)
+            if [ -n "$TUNNEL_URL" ]; then
+                echo -e "${GREEN}  TUNNEL READY!${NC}"
+                echo -e "${BLUE}  Public URL: ${NC}${ORANGE}${TUNNEL_URL}${NC}"
+                echo -e "${ORANGE}  Scan the QR code on the website now!${NC}"
+            else
+                echo -e "${RED}  Failed to get tunnel URL. Check tunnel.log${NC}"
+            fi
+        fi
+    done
 else
     echo -e "${RED}Error: Web server failed to start.${NC}"
-    echo -e "Last 5 lines of web.log:"
     tail -n 5 web.log
     kill $API_PID $VITE_PID 2>/dev/null
     exit 1
 fi
-
-cleanup() {
-    echo -e "\n${BLUE}Shutting down...${NC}"
-    kill $API_PID $VITE_PID 2>/dev/null
-    exit
-}
-
-trap cleanup SIGINT SIGTERM
 wait
